@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevOps Intelligence Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0D1117; --surface:#161B22; --surface2:#1C2128; --border:#30363D;
+      --accent:#F97316; --accent-dim:#7C3A12; --success:#3FB950; --success-dim:#1A4A1F;
+      --danger:#F85149; --muted:#8B949E; --text:#E6EDF3;
+      --mono:'JetBrains Mono',monospace; --sans:'Inter',sans-serif;
+    }
+    html,body,#root { height:100%; background:var(--bg); color:var(--text); font-family:var(--sans); }
+    .shell { display:grid; grid-template-rows:56px 48px 1fr; height:100vh; }
+    .topbar {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:0 24px; border-bottom:1px solid var(--border); background:var(--surface);
+    }
+    .topbar-left { display:flex; align-items:center; gap:12px; }
+    .logo-mark {
+      width:28px; height:28px; border-radius:6px; background:var(--accent);
+      display:flex; align-items:center; justify-content:center;
+      font-family:var(--mono); font-weight:700; font-size:14px; color:#000;
+    }
+    .logo-text { font-family:var(--mono); font-size:13px; font-weight:700; letter-spacing:.04em; }
+    .logo-sub  { font-size:11px; color:var(--muted); margin-top:1px; }
+    .topbar-right { display:flex; align-items:center; gap:16px; }
+    .live-dot { display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:11px; color:var(--success); }
+    .pulse { width:7px; height:7px; border-radius:50%; background:var(--success); animation:pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .stats-bar { display:flex; border-bottom:1px solid var(--border); background:var(--surface); }
+    .stat-item { flex:1; padding:8px 20px; border-right:1px solid var(--border); text-align:center; display:flex; align-items:center; justify-content:center; gap:10px; }
+    .stat-item:last-child { border-right:none; }
+    .stat-value { font-family:var(--mono); font-size:18px; font-weight:700; }
+    .stat-label { font-size:11px; color:var(--muted); }
+    .main { display:grid; grid-template-columns:360px 1fr; overflow:hidden; }
+    .panel-left { border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+    .panel-header {
+      padding:12px 20px; border-bottom:1px solid var(--border);
+      font-family:var(--mono); font-size:11px; color:var(--muted);
+      letter-spacing:.08em; text-transform:uppercase;
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .incident-count { background:var(--accent); color:#000; font-size:10px; font-weight:700; padding:1px 7px; border-radius:10px; font-family:var(--mono); }
+    .incident-list { overflow-y:auto; flex:1; }
+    .incident-list::-webkit-scrollbar { width:4px; }
+    .incident-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+    .incident-card {
+      padding:14px 20px; border-bottom:1px solid var(--border);
+      cursor:pointer; transition:background .15s; position:relative;
+    }
+    .incident-card:hover { background:var(--surface2); }
+    .incident-card.active { background:var(--surface2); }
+    .incident-card.active::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent); }
+    .card-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; }
+    .card-project { font-family:var(--mono); font-size:12px; font-weight:700; }
+    .card-time { font-size:11px; color:var(--muted); white-space:nowrap; margin-left:8px; }
+    .card-title { font-size:12px; color:var(--muted); margin-bottom:7px; line-height:1.4; }
+    .card-meta { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+    .branch-tag { font-family:var(--mono); font-size:10px; background:var(--surface); border:1px solid var(--border); padding:1px 7px; border-radius:4px; color:var(--muted); }
+    .status-badge { font-family:var(--mono); font-size:10px; font-weight:700; padding:2px 8px; border-radius:4px; letter-spacing:.04em; }
+    .status-resolved  { background:var(--success-dim); color:var(--success); }
+    .status-analyzing { background:var(--accent-dim); color:var(--accent); animation:badge-pulse 1.5s infinite; }
+    .status-failed    { background:#3D1A1A; color:var(--danger); }
+    @keyframes badge-pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+    .panel-right { overflow-y:auto; padding:28px 32px; }
+    .panel-right::-webkit-scrollbar { width:4px; }
+    .panel-right::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+    .empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:12px; color:var(--muted); }
+    .empty-icon { font-size:40px; opacity:.3; }
+    .empty-text { font-family:var(--mono); font-size:13px; }
+    .detail-project { font-family:var(--mono); font-size:11px; color:var(--accent); letter-spacing:.08em; text-transform:uppercase; margin-bottom:6px; }
+    .detail-title { font-size:20px; font-weight:600; line-height:1.3; margin-bottom:12px; }
+    .detail-meta { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:28px; }
+    .meta-chip { font-family:var(--mono); font-size:11px; color:var(--muted); background:var(--surface); border:1px solid var(--border); padding:3px 10px; border-radius:4px; display:flex; align-items:center; gap:5px; }
+    .meta-chip span { color:var(--text); }
+    .section { margin-bottom:24px; }
+    .section-label {
+      font-family:var(--mono); font-size:10px; color:var(--muted);
+      letter-spacing:.1em; text-transform:uppercase; margin-bottom:10px;
+      display:flex; align-items:center; gap:8px;
+    }
+    .section-label::after { content:''; flex:1; height:1px; background:var(--border); }
+    .confidence-block { display:flex; align-items:center; gap:14px; }
+    .conf-bar-wrap { flex:1; height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+    .conf-bar { height:100%; border-radius:3px; transition:width .8s cubic-bezier(.4,0,.2,1); }
+    .conf-pct { font-family:var(--mono); font-size:20px; font-weight:700; min-width:52px; }
+    .conf-label { font-family:var(--mono); font-size:11px; padding:2px 8px; border-radius:4px; font-weight:700; }
+    .box { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px; font-size:13px; line-height:1.7; color:var(--text); }
+    .evidence-item { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px; }
+    .evidence-item:last-child { border-bottom:none; }
+    .ev-src { font-family:var(--mono); font-size:10px; font-weight:700; padding:2px 7px; border-radius:4px; white-space:nowrap; align-self:flex-start; margin-top:1px; }
+    .src-elastic{background:#1A2E4A;color:#58A6FF} .src-gitlab{background:#3D1F00;color:#F97316}
+    .src-mongo{background:#1A3A1A;color:#3FB950}   .src-fivetran{background:#1A1A3D;color:#A78BFA}
+    .src-arize{background:#3D1A2E;color:#F472B6}   .src-agent{background:#2A2A2A;color:#8B949E}
+    .partner-badges { display:flex; gap:8px; flex-wrap:wrap; }
+    .pb { font-family:var(--mono); font-size:10px; font-weight:700; padding:4px 10px; border-radius:4px; letter-spacing:.04em; border:1px solid; transition:opacity .4s; }
+    .pb-gitlab  {border-color:#F97316;color:#F97316;background:#3D1F00}
+    .pb-elastic {border-color:#58A6FF;color:#58A6FF;background:#1A2E4A}
+    .pb-mongo   {border-color:#3FB950;color:#3FB950;background:#1A3A1A}
+    .pb-arize   {border-color:#F472B6;color:#F472B6;background:#3D1A2E}
+    .pb-fivetran{border-color:#A78BFA;color:#A78BFA;background:#1A1A3D}
+    .pb-dim { opacity:.2; }
+    .action-links { display:flex; gap:10px; flex-wrap:wrap; }
+    .action-link {
+      display:inline-flex; align-items:center; gap:6px;
+      font-family:var(--mono); font-size:11px; font-weight:700;
+      padding:7px 14px; border-radius:6px; text-decoration:none;
+      border:1px solid var(--border); color:var(--text); background:var(--surface);
+      transition:border-color .15s,color .15s;
+    }
+    .action-link:hover { border-color:var(--accent); color:var(--accent); }
+    .action-link.primary { background:var(--accent); border-color:var(--accent); color:#000; }
+    .action-link.primary:hover { background:#EA6A00; border-color:#EA6A00; }
+    .thinking-block { background:var(--surface); border:1px solid var(--accent-dim); border-radius:8px; padding:16px; font-family:var(--mono); font-size:11px; }
+    .thinking-header { color:var(--accent); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+    .spin { width:10px; height:10px; border:2px solid var(--accent-dim); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+    @keyframes spin { to{transform:rotate(360deg)} }
+    .thinking-cursor { display:inline-block; width:7px; height:13px; background:var(--accent); animation:blink 1s step-end infinite; vertical-align:text-bottom; margin-left:2px; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    .trigger-btn {
+      font-family:var(--mono); font-size:11px; font-weight:700;
+      padding:6px 14px; border-radius:6px; border:1px solid var(--accent);
+      color:var(--accent); background:transparent; cursor:pointer; transition:background .15s,color .15s;
+    }
+    .trigger-btn:hover { background:var(--accent); color:#000; }
+    .trigger-btn:disabled { opacity:.4; cursor:not-allowed; }
+    * { scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+const PARTNERS = ['gitlab','elastic','mongo','arize','fivetran'];
+const PARTNER_LABELS = { gitlab:'GitLab', elastic:'Elastic', mongo:'MongoDB', arize:'Arize', fivetran:'Fivetran' };
+
+const THINKING_LINES = [
+  '[1/10] Opening Arize observability trace...',
+  '[2/10] Fetching pipeline context from GitLab...',
+  '       → Pipeline #40056 · branch: feat/user-auth-refactor',
+  '       → Failed job: unit-tests (stage: test, 47s)',
+  '       → Commit: "refactor: update auth middleware" +31 -8',
+  '[3/10] Searching Elasticsearch logs...',
+  '       → 5 error events in 30-minute window',
+  '       → Pattern detected: AuthenticationException, JWTDecodeError',
+  '[4/10] Querying MongoDB for similar incidents...',
+  '       → 1 similar incident found (2 overlapping patterns)',
+  '[5/10] Fetching enriched context via Fivetran...',
+  '       → Jira BACK-452: "Auth token refresh fails intermittently"',
+  '       → PagerDuty: 0 active alerts on main',
+  '       → DB: CPU 71%, connections 138/200, P99 latency 420ms',
+  '[6/10] Calling LLM for root-cause analysis...',
+  '       → Prompt assembled: 4,821 tokens',
+  '       → Confidence: 88% — HIGH',
+  '[7/10] Creating GitLab issue...',
+];
+
+const MOCK_INCIDENTS = [
+  {
+    id: 'b5e222eb', project:'backend-api', pipeline:10042, branch:'main', sha:'a1b2c3d4e5f6',
+    status:'resolved', confidence:0.91, confidenceLabel:'high',
+    title:'Fix NullPointerException in UserService.getUserById',
+    rootCause:'getUserById() dereferences the cached user object without a null guard. When the user is absent from the in-memory cache and the DB query returns no rows, the method throws a NullPointerException at line 142 before any fallback logic can execute.',
+    evidence:[
+      {source:'elastic', detail:'NullPointerException at UserService.getUserById(UserService.java:142) — 3 occurrences in 30m window'},
+      {source:'gitlab',  detail:'Commit "feat: add user caching layer" (+47 -3) introduced cache access without null check'},
+      {source:'mongo',   detail:'Similar incident 7 days ago — identical stack trace, resolved in 14s'},
+    ],
+    partners:PARTNERS,
+    issueUrl:'https://gitlab.com/shakeebiqbals/rootiq/-/work_items/12',
+    prUrl:null,
+    arizeUrl:'https://app.phoenix.arize.com/spaces/shakeebiqbals/traces/b5e222eb',
+    durationMs:8919, resolvedAt: new Date(Date.now() - 9*60*1000),
+    recommendedFix:'Add a null check before dereferencing: if (user == null) return Optional.empty(); This prevents the NPE and allows the caller to handle the missing-user case gracefully.',
+  },
+  {
+    id:'mock-oom-001', project:'data-pipeline', pipeline:20077, branch:'feature/heavy-data', sha:'b2c3d4e5f6a7',
+    status:'resolved', confidence:0.95, confidenceLabel:'high',
+    title:'Fix Node.js heap OOM in webpack build',
+    rootCause:'The webpack build exceeded the 1.5 GB Node.js heap limit processing unoptimised image assets added in this branch. GC thrashing began at 87% heap utilisation and the runner OOM-killed the process.',
+    evidence:[
+      {source:'gitlab',  detail:'FATAL ERROR: Allocation failed — JavaScript heap out of memory at 87% GC'},
+      {source:'elastic', detail:'3 heap-OOM events in build logs; P99 build time spiked from 12s → 44s'},
+      {source:'fivetran',detail:'DB CPU 72%, connections 143/200 — context only'},
+    ],
+    partners:PARTNERS,
+    issueUrl:'https://gitlab.com/shakeebiqbals/rootiq/-/issues/15',
+    prUrl:'https://gitlab.com/shakeebiqbals/rootiq/-/merge_requests/8',
+    arizeUrl:'https://app.phoenix.arize.com/spaces/shakeebiqbals/traces/mock-oom-001',
+    durationMs:31500, resolvedAt: new Date(Date.now() - 4*60*60*1000),
+    recommendedFix:'Add NODE_OPTIONS=--max-old-space-size=4096 to the CI job env. Compress image assets with imagemin before the build step to reduce peak heap usage.',
+  },
+  {
+    id:'mock-db-001', project:'core-platform', pipeline:30014, branch:'release/v2.4.0', sha:'c3d4e5f6a7b8',
+    status:'resolved', confidence:0.87, confidenceLabel:'high',
+    title:'Fix DB migration targeting read replica',
+    rootCause:'DATABASE_URL in the release pipeline points to the read replica. The migration runner connected to the replica which rejected writes. Replication lag of 1200ms compounded the timeout errors.',
+    evidence:[
+      {source:'gitlab',  detail:'PG::ConnectionBad — connection routed to read replica, not primary'},
+      {source:'fivetran',detail:'DB replication lag: 1200ms; active connections: 143/200; P99: 890ms'},
+      {source:'elastic', detail:'Migration 0045_add_user_roles failed — 2 retries before abort'},
+    ],
+    partners:PARTNERS,
+    issueUrl:'https://gitlab.com/shakeebiqbals/rootiq/-/issues/103',
+    prUrl:null,
+    arizeUrl:'https://app.phoenix.arize.com/spaces/shakeebiqbals/traces/mock-db-001',
+    durationMs:18700, resolvedAt: new Date(Date.now() - 2*24*60*60*1000),
+    recommendedFix:'Update the release pipeline to use DATABASE_PRIMARY_URL for migration jobs. Add a pre-migration assertion that the connection target is not read-only.',
+  },
+];
+
+function timeAgo(d) {
+  const s = Math.floor((Date.now()-d)/1000);
+  if (s<60) return `${s}s ago`;
+  if (s<3600) return `${Math.floor(s/60)}m ago`;
+  if (s<86400) return `${Math.floor(s/3600)}h ago`;
+  return `${Math.floor(s/86400)}d ago`;
+}
+
+function StatusBadge({status}) {
+  const map = {resolved:'RESOLVED',analyzing:'ANALYZING',failed:'FAILED'};
+  return <span className={`status-badge status-${status}`}>{map[status]||status.toUpperCase()}</span>;
+}
+
+function PartnerBadges({partners, dimUnused}) {
+  return (
+    <div className="partner-badges">
+      {PARTNERS.map(p=>(
+        <span key={p} className={`pb pb-${p}${dimUnused&&!partners.includes(p)?' pb-dim':''}`}>
+          {PARTNER_LABELS[p]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ConfidenceMeter({confidence, label}) {
+  const pct = Math.round(confidence*100);
+  const color = label==='high'?'var(--success)':label==='medium'?'#E3B341':'var(--danger)';
+  const barCls = label==='high'?'conf-bar':`conf-bar`;
+  const barBg  = color;
+  return (
+    <div className="confidence-block">
+      <div className="conf-pct" style={{color}}>{pct}%</div>
+      <div className="conf-bar-wrap">
+        <div className="conf-bar" style={{width:`${pct}%`,background:barBg}} />
+      </div>
+      <span className="conf-label" style={
+        label==='high'  ? {background:'var(--success-dim)',color:'var(--success)'}:
+        label==='medium'? {background:'#3D2E00',color:'#E3B341'}:
+                          {background:'#3D1A1A',color:'var(--danger)'}
+      }>{label.toUpperCase()}</span>
+    </div>
+  );
+}
+
+function ThinkingTicker({lines}) {
+  const [shown, setShown] = useState(0);
+  const [chars, setChars] = useState(0);
+
+  useEffect(()=>{
+    if (shown>=lines.length) return;
+    const line = lines[shown];
+    if (chars<line.length) {
+      const t = setTimeout(()=>setChars(c=>c+1), 16);
+      return ()=>clearTimeout(t);
+    } else {
+      const t = setTimeout(()=>{setShown(s=>s+1);setChars(0);}, 100);
+      return ()=>clearTimeout(t);
+    }
+  },[shown,chars,lines]);
+
+  return (
+    <div className="thinking-block">
+      <div className="thinking-header"><div className="spin"/>Agent reasoning...</div>
+      <div style={{lineHeight:1.8}}>
+        {lines.slice(0,shown).map((l,i)=>(
+          <div key={i} style={{color:l.startsWith('[')? 'var(--accent)':'var(--muted)'}}>{l}</div>
+        ))}
+        {shown<lines.length&&(
+          <div style={{color:lines[shown].startsWith('[')? 'var(--accent)':'var(--muted)'}}>
+            {lines[shown].slice(0,chars)}<span className="thinking-cursor"/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailPane({incident}) {
+  if (!incident) return (
+    <div className="empty-state">
+      <div className="empty-icon">⌥</div>
+      <div className="empty-text">Select an incident to view analysis</div>
+    </div>
+  );
+
+  if (incident.status==='analyzing') return (
+    <div className="panel-right">
+      <div className="detail-project">{incident.project} · pipeline #{incident.pipeline}</div>
+      <div className="detail-title" style={{marginBottom:12}}>Analysing pipeline failure...</div>
+      <div className="detail-meta">
+        <span className="meta-chip">⎇ <span>{incident.branch}</span></span>
+        <StatusBadge status="analyzing"/>
+      </div>
+      <div className="section">
+        <div className="section-label">Partners engaged</div>
+        <PartnerBadges partners={incident.activePartners||[]} dimUnused={true}/>
+      </div>
+      <div className="section">
+        <div className="section-label">Agent log</div>
+        <ThinkingTicker lines={THINKING_LINES}/>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="panel-right">
+      <div className="detail-project">{incident.project} · pipeline #{incident.pipeline}</div>
+      <div className="detail-title">{incident.title}</div>
+      <div className="detail-meta">
+        <span className="meta-chip">⎇ <span>{incident.branch}</span></span>
+        <span className="meta-chip">@ <span>{incident.sha.slice(0,8)}</span></span>
+        <span className="meta-chip">⏱ <span>{(incident.durationMs/1000).toFixed(1)}s</span></span>
+        <StatusBadge status={incident.status}/>
+      </div>
+
+      <div className="section">
+        <div className="section-label">Confidence</div>
+        <ConfidenceMeter confidence={incident.confidence} label={incident.confidenceLabel}/>
+      </div>
+
+      <div className="section">
+        <div className="section-label">Root cause</div>
+        <div className="box">{incident.rootCause}</div>
+      </div>
+
+      <div className="section">
+        <div className="section-label">Evidence ({incident.evidence.length} items)</div>
+        <div>
+          {incident.evidence.map((e,i)=>(
+            <div key={i} className="evidence-item">
+              <span className={`ev-src src-${e.source}`}>{e.source}</span>
+              <span style={{color:'var(--muted)',lineHeight:1.5}}>{e.detail}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="section-label">Partner integrations</div>
+        <PartnerBadges partners={incident.partners} dimUnused={false}/>
+      </div>
+
+      <div className="section">
+        <div className="section-label">Recommended fix</div>
+        <div className="box" style={{color:'var(--muted)'}}>{incident.recommendedFix}</div>
+      </div>
+
+      <div className="section">
+        <div className="section-label">Actions</div>
+        <div className="action-links">
+          {incident.issueUrl&&<a className="action-link primary" href={incident.issueUrl} target="_blank" rel="noreferrer">🦊 GitLab Issue</a>}
+          {incident.prUrl&&<a className="action-link" href={incident.prUrl} target="_blank" rel="noreferrer">⤴ Patch MR</a>}
+          {incident.arizeUrl&&<a className="action-link" href={incident.arizeUrl} target="_blank" rel="noreferrer">📡 Arize Trace</a>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [incidents, setIncidents] = useState(MOCK_INCIDENTS);
+  const [selected, setSelected]   = useState(MOCK_INCIDENTS[0].id);
+  const [simulating, setSimulating] = useState(false);
+  const [, tick] = useState(0);
+
+  useEffect(()=>{
+    const t = setInterval(()=>tick(n=>n+1), 30000);
+    return ()=>clearInterval(t);
+  },[]);
+
+  const triggerDemo = useCallback(()=>{
+    if (simulating) return;
+    setSimulating(true);
+    const id = `demo-${Date.now()}`;
+    const newInc = {
+      id, project:'frontend-app', pipeline:40055+Math.floor(Math.random()*100),
+      branch:'feat/user-auth-refactor', sha:'d4e5f6a7b8c9',
+      status:'analyzing', title:'', startedAt:new Date(), resolvedAt:new Date(),
+      activePartners:[], evidence:[], partners:[],
+    };
+    setIncidents(prev=>[newInc,...prev]);
+    setSelected(id);
+
+    // Partners light up one by one
+    PARTNERS.forEach((p,i)=>{
+      setTimeout(()=>{
+        setIncidents(prev=>prev.map(inc=>
+          inc.id===id ? {...inc, activePartners:PARTNERS.slice(0,i+1)} : inc
+        ));
+      }, 600 + i*900);
+    });
+
+    // Resolve after thinking ticker finishes
+    const resolveAt = THINKING_LINES.length * 120 + 800;
+    setTimeout(()=>{
+      setIncidents(prev=>prev.map(inc=>inc.id!==id?inc:{
+        ...inc, status:'resolved', confidence:0.88, confidenceLabel:'high',
+        title:'Fix AuthenticationException in JWT middleware',
+        rootCause:'The jwt-decode library was upgraded from v8→v9 in this branch. The v9 API changed decode() to throw AuthenticationException on invalid tokens instead of returning null. The middleware catches null but not the exception, causing unhandled rejections that fail the test suite.',
+        evidence:[
+          {source:'gitlab',  detail:'Commit "refactor: update auth middleware" bumped jwt-decode 8.0.1→9.0.0 (+31 -8)'},
+          {source:'elastic', detail:'AuthenticationException: invalid signature — 5 occurrences in auth.middleware.js:67'},
+          {source:'mongo',   detail:'Similar incident 3 weeks ago — same jwt-decode upgrade pattern, resolved in 22m'},
+        ],
+        partners:PARTNERS,
+        issueUrl:'https://gitlab.com/shakeebiqbals/rootiq/-/issues/new',
+        prUrl:null,
+        arizeUrl:`https://app.phoenix.arize.com/spaces/shakeebiqbals/traces/${id}`,
+        durationMs:8200, resolvedAt:new Date(),
+        recommendedFix:"Wrap jwt.decode() in try/catch and handle AuthenticationException. Or pin jwt-decode to ^8.0.1 until the middleware is updated for the v9 API.",
+      }));
+      setSimulating(false);
+    }, resolveAt);
+  },[simulating]);
+
+  const resolved = incidents.filter(i=>i.status==='resolved').length;
+  const confIncs  = incidents.filter(i=>i.confidence);
+  const avgConf   = confIncs.length ? confIncs.reduce((s,i)=>s+i.confidence,0)/confIncs.length : 0;
+  const selectedInc = incidents.find(i=>i.id===selected)||null;
+
+  return (
+    <div className="shell">
+      <header className="topbar">
+        <div className="topbar-left">
+          <div className="logo-mark">D</div>
+          <div>
+            <div className="logo-text">DevOps Intelligence Agent</div>
+            <div className="logo-sub">Powered by Gemini · GitLab Track</div>
+          </div>
+        </div>
+        <div className="topbar-right">
+          <div className="live-dot"><div className="pulse"/>LIVE</div>
+          <button className="trigger-btn" onClick={triggerDemo} disabled={simulating}>
+            {simulating?'Analysing...':'▶ Simulate Failure'}
+          </button>
+        </div>
+      </header>
+
+      <div className="stats-bar">
+        <div className="stat-item">
+          <div className="stat-value">{incidents.length}</div>
+          <div className="stat-label">Total Incidents</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-value" style={{color:'var(--success)'}}>{resolved}</div>
+          <div className="stat-label">Auto-Resolved</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-value" style={{color:'var(--accent)'}}>{Math.round(avgConf*100)}%</div>
+          <div className="stat-label">Avg Confidence</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-value">5</div>
+          <div className="stat-label">Partners Active</div>
+        </div>
+      </div>
+
+      <div className="main">
+        <div className="panel-left">
+          <div className="panel-header">
+            Incidents
+            <span className="incident-count">{incidents.length}</span>
+          </div>
+          <div className="incident-list">
+            {incidents.map(inc=>(
+              <div key={inc.id} className={`incident-card${selected===inc.id?' active':''}`} onClick={()=>setSelected(inc.id)}>
+                <div className="card-top">
+                  <span className="card-project">{inc.project}</span>
+                  <span className="card-time">{timeAgo(inc.resolvedAt||inc.startedAt||new Date())}</span>
+                </div>
+                <div className="card-title">{inc.title||`Pipeline #${inc.pipeline} failure`}</div>
+                <div className="card-meta">
+                  <span className="branch-tag">{inc.branch}</span>
+                  {inc.confidence!=null&&(
+                    <span style={{fontFamily:'var(--mono)',fontSize:11,
+                      color:inc.confidenceLabel==='high'?'var(--success)':'#E3B341'}}>
+                      {Math.round(inc.confidence*100)}%
+                    </span>
+                  )}
+                  <StatusBadge status={inc.status}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <DetailPane incident={selectedInc}/>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

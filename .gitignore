@@ -1,0 +1,21 @@
+# Environment — NEVER commit credentials
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+dashboard/node_modules/
+
+# Build output
+dashboard/dist/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

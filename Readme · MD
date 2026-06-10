@@ -1,0 +1,297 @@
+# DevOps Intelligence Agent
+
+> An AI agent that wakes up when your GitLab CI pipeline fails, finds the root cause, and fixes it — automatically.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-22+-brightgreen.svg)](https://nodejs.org)
+[![GitLab](https://img.shields.io/badge/Partner-GitLab-FC6D26?logo=gitlab)](https://gitlab.com)
+[![MongoDB](https://img.shields.io/badge/Partner-MongoDB-47A248?logo=mongodb)](https://mongodb.com)
+[![Elastic](https://img.shields.io/badge/Partner-Elastic-005571?logo=elastic)](https://elastic.co)
+[![Arize](https://img.shields.io/badge/Partner-Arize-FF6B9D)](https://arize.com)
+[![Fivetran](https://img.shields.io/badge/Partner-Fivetran-0073FF)](https://fivetran.com)
+
+**Google Cloud Rapid Agent Hackathon — GitLab Track**
+
+---
+
+## What It Does
+
+When a CI pipeline fails, engineers waste 20–60 minutes hunting through logs, checking recent commits, cross-referencing past incidents, and writing up an issue. The DevOps Intelligence Agent eliminates that loop entirely.
+
+**The moment a GitLab pipeline fails:**
+
+1. The agent receives the webhook from GitLab
+2. Pulls the failed job logs, commit diff, and pipeline metadata
+3. Queries Elasticsearch for error patterns in the surrounding time window
+4. Checks MongoDB for similar past incidents — scored by error pattern overlap
+5. Enriches context with Jira tickets and DB metrics via Fivetran
+6. Calls Gemini to synthesise a root-cause analysis with a confidence score
+7. Creates a GitLab issue with the full diagnosis, evidence, and recommended fix
+8. If confidence ≥ 75%, opens a patch MR automatically — branch, file changes, and all
+9. Saves the incident to MongoDB for future similarity matching
+10. Logs every reasoning step to Arize Phoenix for full LLM observability
+
+**The engineer opens Slack, sees a GitLab issue already waiting with a diagnosis and a patch PR. The loop is closed before they even open a terminal.**
+
+---
+
+## Live Demo
+
+[![Watch the demo](https://img.shields.io/badge/Demo-Watch%203min%20video-red?logo=youtube)](https://youtu.be/DEMO_LINK)
+
+**Example output — real GitLab issue created by the agent:**
+- [Issue #12 — Fix NullPointerException in backend-api](https://gitlab.com/shakeebiqbals/rootiq/-/work_items/12)
+
+---
+
+## Architecture
+
+```
+GitLab CI Pipeline Failure
+         │
+         ▼ (webhook POST /webhook/gitlab)
+┌─────────────────────────────────────────────────────┐
+│              Express Webhook Server                  │
+│         Serial queue — returns 200 immediately       │
+└──────────────────────┬──────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│              DevOps Agent Orchestrator               │
+│                                                      │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │
+│  │  GitLab  │  │ Elastic  │  │    MongoDB       │  │
+│  │  Tool    │  │  Tool    │  │    Tool          │  │
+│  │          │  │          │  │                  │  │
+│  │ Pipeline │  │  Error   │  │ Similar incident │  │
+│  │ Jobs     │  │  logs    │  │ history + store  │  │
+│  │ Commits  │  │  patterns│  │ kv_store         │  │
+│  │ Job logs │  └──────────┘  └──────────────────┘  │
+│  │ Issues   │                                        │
+│  │ Patch MR │  ┌──────────┐  ┌──────────────────┐  │
+│  └──────────┘  │ Fivetran │  │     Arize        │  │
+│                │  Tool    │  │     Tool         │  │
+│                │          │  │                  │  │
+│                │  Jira    │  │ OTLP trace spans │  │
+│                │  PagerDuty  │ LLM observability│  │
+│                │  DB metrics │ Confidence audit │  │
+│                └──────────┘  └──────────────────┘  │
+│                                                      │
+│              ┌─────────────────┐                    │
+│              │  Gemini Client  │                    │
+│              │  (LLM brain)    │                    │
+│              │  JSON schema    │                    │
+│              │  Confidence gate│                    │
+│              └─────────────────┘                    │
+└─────────────────────────────────────────────────────┘
+         │                    │
+         ▼                    ▼
+  GitLab Issue          Patch MR
+  (always)         (confidence ≥ 75%)
+```
+
+---
+
+## Partner Integrations
+
+### 🦊 GitLab (Primary Track)
+The agent integrates with GitLab at every stage of the failure response loop:
+- **Webhook receiver** — listens for `Pipeline Hook` events with `status: failed`
+- **Pipeline context** — fetches pipeline metadata, failed job details, and commit diff
+- **Job logs** — retrieves raw CI logs (last 8000 chars, where errors live)
+- **Issue creation** — opens a structured issue with root cause, evidence, confidence score, and similar incidents
+- **Patch MR** — creates a branch, commits the AI-generated fix, and opens an MR with `auto-fix` + `needs-review` labels
+
+### 🌿 MongoDB
+Incident memory — the agent's long-term knowledge base:
+- **`incidents` collection** — every resolved failure is persisted with error patterns, root cause, confidence, and resolution links
+- **Similarity matching** — `$elemMatch` + in-memory overlap scoring finds past incidents with matching error patterns, scored by number of shared patterns
+- **`kv_store` collection** — generic agent state persistence
+- **Seeded with 5 demo incidents** across different failure types (`npm run setup:db`)
+
+### 🔍 Elastic
+Log intelligence — turns raw CI output into structured error signals:
+- **`pipeline-logs-*` index** — queries a 30-minute window around each failure
+- **Bool query** — `range` filter + `should` clauses matching pipeline ID, project ID, git SHA, and ref
+- **Aggregations** — `significant_text` for error patterns, `terms` for log levels and top messages
+- **Mock fallback** — demo runs without a live cluster
+
+### 📡 Arize Phoenix
+LLM observability — audits every agent decision:
+- **OTLP/HTTP spans** — every agent run is a traced span with input, output, token count, duration, and success/failure
+- **Child LLM spans** — individual model calls tracked separately for latency and token analysis
+- **Confidence drift** — confidence scores logged as attributes, enabling trend analysis across incidents
+- **Trace URL** — embedded in every GitLab issue for one-click audit trail
+
+### 🔄 Fivetran
+External context enrichment — brings in signals from outside the CI system:
+- **Jira tickets** — open tickets linked to the failing project, surfaced in the LLM prompt
+- **PagerDuty alerts** — active alerts on the branch being deployed
+- **DB metrics** — CPU, connection count, P99 latency, replication lag from synced DB connectors
+- **`Promise.allSettled`** — all three sources fetched in parallel; partial failures don't block the analysis
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Node.js 22+
+- An Anthropic API key (for LLM analysis) **or** Google Cloud project with Vertex AI enabled (production)
+- GitLab personal access token with `api` scope
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/YOUR_USERNAME/devops-intelligence-agent.git
+cd devops-intelligence-agent
+npm install
+```
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` — minimum required for the demo:
+
+```bash
+ANTHROPIC_API_KEY=your_key_here     # or set GOOGLE_CLOUD_PROJECT for Gemini
+GITLAB_TOKEN=your_gitlab_pat        # api scope
+GITLAB_PROJECT_ID=your_project_id   # numeric, from Settings > General
+```
+
+All other services (MongoDB, Elasticsearch, Arize, Fivetran) degrade gracefully to mock data if credentials are absent. The demo runs end-to-end without them.
+
+### 3. Run the demo
+
+```bash
+npm run demo
+```
+
+This simulates a NullPointerException pipeline failure through all 10 agent steps and creates a real GitLab issue in your project.
+
+**Other scenarios:**
+
+```bash
+npm run demo:oom    # OOMKilled — Node.js heap exhausted
+npm run demo:db     # DB migration — connection refused
+npm run demo:test   # Jest — 14 tests failed after refactor
+```
+
+### 4. Seed MongoDB (optional)
+
+```bash
+npm run setup:db
+```
+
+Creates indexes and seeds 5 historical incidents for similarity matching.
+
+### 5. Start the webhook server
+
+```bash
+npm start           # starts on port 3000
+```
+
+Endpoints:
+- `POST /webhook/gitlab` — GitLab Pipeline Hook receiver
+- `GET  /health` — liveness + queue status
+- `GET  /incidents` — last 50 resolved incidents (dashboard feed)
+- `POST /trigger` — manual trigger for testing (dev only)
+
+### 6. Run with Docker
+
+```bash
+docker-compose up --build
+```
+
+Starts the agent, React dashboard, Elasticsearch, and MongoDB in one command.
+
+---
+
+## Project Structure
+
+```
+devops-intelligence-agent/
+├── agent/
+│   ├── index.js              # DevOpsAgent — 10-step orchestrator
+│   ├── gemini-client.js      # LLM client (Gemini / Claude abstraction)
+│   ├── webhook-server.js     # Express server + serial queue
+│   └── logger.js             # Structured logger
+├── tools/
+│   ├── gitlab.js             # GitLab REST API wrapper
+│   ├── elastic.js            # Elasticsearch log search
+│   ├── mongo.js              # MongoDB incident store
+│   ├── arize.js              # Arize Phoenix OTLP tracing
+│   └── fivetran.js           # Fivetran enriched context
+├── scripts/
+│   ├── demo-failure.js       # End-to-end demo (4 scenarios)
+│   ├── test-integrations.js  # Integration test suite
+│   └── setup-db.js           # MongoDB index + seed script
+├── dashboard/                # React live incident monitor
+├── cloud/
+│   └── agent-builder.yaml    # Google Cloud Agent Builder config
+├── Dockerfile
+├── docker-compose.yml
+└── .env.example
+```
+
+---
+
+## Key Design Decisions
+
+**Serial webhook queue** — The webhook endpoint returns `200` immediately and processes events one at a time. GitLab never times out, and simultaneous multi-job failures don't create a thundering herd.
+
+**Last-N-chars log truncation** — `getJobLog()` returns the *last* 8000 characters of a job log, not the first. Errors always appear at the tail, not buried in setup output. This directly improves LLM analysis quality.
+
+**75% confidence gate on auto-patching** — The agent creates an issue on every failure, but only opens a patch MR when confidence ≥ 75%. This prevents noisy, incorrect MRs from eroding engineer trust.
+
+**`Promise.allSettled` for all parallel fetches** — Every parallel operation (GitLab context, Fivetran enrichment) uses `allSettled` rather than `Promise.all`. A single 404 or timeout never aborts the entire analysis.
+
+**Graceful degradation on every tool** — Every tool catches its own errors and returns mock data rather than throwing. The agent completes a full run — including a real GitLab issue — even with zero live credentials beyond the LLM.
+
+**Arize as meta-layer** — Arize observes the agent itself, not the application. You can audit every root-cause decision, track confidence drift over time, and compare LLM accuracy against human-resolved incidents.
+
+---
+
+## Switching to Gemini (Production)
+
+The `GeminiClient` class is a thin abstraction designed for the Vertex AI swap. In `agent/gemini-client.js`, replace the Anthropic SDK block with:
+
+```js
+import { VertexAI } from '@google-cloud/vertexai';
+
+const vertex = new VertexAI({ project: process.env.GOOGLE_CLOUD_PROJECT, location: 'us-central1' });
+const model  = vertex.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+// In analyzeFailure():
+const result = await model.generateContent(prompt);
+const raw    = result.response.candidates[0].content.parts[0].text;
+```
+
+The system prompt, JSON schema, and all tool integrations are identical regardless of LLM backend. See `cloud/agent-builder.yaml` for the full Google Cloud Agent Builder deployment config.
+
+---
+
+## npm Scripts
+
+| Command | Description |
+|---|---|
+| `npm run demo` | Default scenario — NullPointerException |
+| `npm run demo:oom` | OOMKilled — Node.js heap |
+| `npm run demo:db` | DB migration failure |
+| `npm run demo:test` | Jest test suite failure |
+| `npm start` | Start webhook server on port 3000 |
+| `npm run setup:db` | Create MongoDB indexes + seed 5 incidents |
+| `npm run dashboard` | Start React dashboard on port 5173 |
+| `npm run docker:up` | Full stack via docker-compose |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE)
+
+---
+
+*Built for the Google Cloud Rapid Agent Hackathon — GitLab Track*

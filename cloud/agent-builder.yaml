@@ -1,0 +1,42 @@
+# Placeholder for agent-builder.yaml
+# Based on CLAUDE.md description:
+// Google Cloud Agent Builder configuration declaring all 5 MCP servers.
+// LLM: gemini-2.0-flash-exp on us-central1.
+// MCP servers declared:
+//   - elastic-mcp: search_elastic_logs tool
+//   - mongodb-mcp: query_mongodb_incidents + save_mongodb_incident tools
+//   - gitlab-mcp: get_pipeline_context + create_gitlab_issue + create_gitlab_mr tools
+//   - arize-mcp: log_arize_trace tool
+//   - fivetran-mcp: get_fivetran_context tool
+// Trigger: Webhook at POST /webhook/gitlab, filtered to status == "failed"
+// Memory: MongoDB-backed agent memory collection.
+// Guardrails: Max 20 tool calls per run, 120s timeout, fallback to GitLab issue creation on error.
+// Deploy command: gcloud agent-builder agents deploy --config=cloud/agent-builder.yaml
+
+console.log('Agent Builder config placeholder');
+// In a real implementation, this would be a proper YAML configuration
+// for Google Cloud Agent Builder with all the MCP server integrations
+
+agent:
+  display_name: DevOps Intelligence Agent
+  description: AI agent for DevOps pipeline failure analysis
+  region: us-central1
+  language_model:
+    model_name: gemini-2.0-flash-exp
+  tools:
+    - elastic-mcp
+    - mongodb-mcp
+    - gitlab-mcp
+    - arize-mcp
+    - fivetran-mcp
+  trigger:
+    event_type: webhook
+    path: /webhook/gitlab
+    condition: status == "failed"
+  memory:
+    type: mongodb
+    collection: agent_memory
+  guardrails:
+    max_tool_calls: 20
+    timeout_seconds: 120
+    fallback_action: create_gitlab_issue
