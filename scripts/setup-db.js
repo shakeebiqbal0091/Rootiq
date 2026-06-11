@@ -11,4 +11,4 @@ console.log('Database setup placeholder');
 // - Create required indexes
 // - Insert seed incident data
 
-module.exports = { setupDatabase: () => console.log('Database setup would run here') };
+ export const setupDatabase = () => console.log('Database setup would run here');

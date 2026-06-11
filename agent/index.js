@@ -19,6 +19,7 @@ import { randomUUID } from 'crypto';
 import { MongoTool } from '../tools/mongo.js';
 import { ElasticTool } from '../tools/elastic.js';
 import { GitLabTool } from '../tools/gitlab.js';
+import { GitLabMCPClient } from '../tools/gitlab-mcp.js';
 import { ArizeTool } from '../tools/arize.js';
 import { FivetranTool } from '../tools/fivetran.js';
 import GeminiClient from './gemini-client.js';
@@ -30,7 +31,8 @@ export class DevOpsAgent {
   constructor() {
     this.mongo    = new MongoTool();
     this.elastic  = new ElasticTool();
-    this.gitlab   = new GitLabTool();
+    this.gitlab    = new GitLabTool();
+    this.gitlabMCP = new GitLabMCPClient();
     this.arize    = new ArizeTool();
     this.fivetran = new FivetranTool();
     this.gemini   = new GeminiClient();
@@ -181,12 +183,12 @@ export class DevOpsAgent {
   // ---------------------------------------------------------------------------
 
   async fetchPipelineContext(event, incidentId) {
-    const projectId = String(event?.project?.id ?? '');
+    const projectId  = String(event?.project?.id ?? '');
     const pipelineId = String(event?.object_attributes?.id ?? '');
-    const sha = event?.object_attributes?.sha ?? '';
-    const gitlabUrl = process.env.GITLAB_URL || 'https://gitlab.com';
+    const sha        = event?.object_attributes?.sha ?? '';
+    const gitlabUrl  = process.env.GITLAB_URL || 'https://gitlab.com';
 
-    // Inline fallbacks — never depend on private _mock* methods from gitlab tool
+    // Inline fallbacks
     const fallbackPipeline = {
       id: pipelineId, iid: 1, project_id: projectId,
       sha: sha || 'abc123def456', ref: event?.object_attributes?.ref ?? 'main',
@@ -194,22 +196,49 @@ export class DevOpsAgent {
       web_url: `${gitlabUrl}/example/project/-/pipelines/${pipelineId}`,
       created_at: new Date().toISOString(),
     };
-
     const fallbackJobs = [{
       id: 9001, name: 'build-and-test', stage: 'test', status: 'failed',
-      duration: 47.3,
-      web_url: `${gitlabUrl}/example/project/-/jobs/9001`,
+      duration: 47.3, web_url: `${gitlabUrl}/example/project/-/jobs/9001`,
       created_at: new Date().toISOString(),
     }];
-
     const fallbackCommit = {
-      id: sha || 'abc123def456',
-      short_id: (sha || 'abc123').slice(0, 8),
-      title: 'Recent commit',
-      author_name: 'Developer',
-      created_at: new Date().toISOString(),
-      stats: { additions: 0, deletions: 0, total: 0 },
+      id: sha || 'abc123def456', short_id: (sha || 'abc123').slice(0, 8),
+      title: 'Recent commit', author_name: 'Developer',
+      created_at: new Date().toISOString(), stats: { additions: 0, deletions: 0, total: 0 },
     };
+
+    // ── Step 2a: Try GitLab MCP server first (satisfies hackathon MCP requirement) ──
+    // Uses official GitLab MCP endpoint: https://gitlab.com/api/v4/mcp
+    // Tools called: get_pipeline_jobs, get_job_log
+    const mcpContext = await this.gitlabMCP.getPipelineContextMCP({
+      projectId, pipelineId, errorPatterns: [],
+    });
+
+    if (mcpContext) {
+      logger.info('GitLab MCP: pipeline context fetched via MCP server', {
+        jobCount: mcpContext.failedJobs.length,
+        logCount: Object.keys(mcpContext.jobLogs).length,
+        incidentId,
+      });
+
+      // Still fetch pipeline + commit via REST (not in MCP tool set)
+      const [pipelineResult, commitResult] = await Promise.allSettled([
+        this.gitlab.getPipeline(projectId, pipelineId),
+        sha ? this.gitlab.getCommit(projectId, sha) : Promise.resolve(fallbackCommit),
+      ]);
+
+      return {
+        pipeline:   pipelineResult.status === 'fulfilled' ? pipelineResult.value : fallbackPipeline,
+        failedJobs: mcpContext.failedJobs.length ? mcpContext.failedJobs : fallbackJobs,
+        commit:     commitResult.status   === 'fulfilled' ? commitResult.value   : fallbackCommit,
+        jobLogs:    mcpContext.jobLogs,
+        mcpUsed:    true,
+        relatedIssues: mcpContext.relatedIssues ?? [],
+      };
+    }
+
+    // ── Step 2b: REST fallback (MCP unavailable or credentials missing) ──
+    logger.info('GitLab MCP unavailable — falling back to REST API', { incidentId });
 
     const [pipelineResult, jobsResult, commitResult] = await Promise.allSettled([
       this.gitlab.getPipeline(projectId, pipelineId),
@@ -217,28 +246,20 @@ export class DevOpsAgent {
       sha ? this.gitlab.getCommit(projectId, sha) : Promise.resolve(fallbackCommit),
     ]);
 
-    if (pipelineResult.status === 'rejected') {
-      logger.warn('getPipeline failed — using fallback', { error: pipelineResult.reason?.message, incidentId });
-    }
-    if (jobsResult.status === 'rejected') {
-      logger.warn('getFailedJobs failed — using fallback', { error: jobsResult.reason?.message, incidentId });
-    }
-    if (commitResult.status === 'rejected') {
-      logger.warn('getCommit failed — using fallback', { error: commitResult.reason?.message, incidentId });
-    }
+    if (pipelineResult.status === 'rejected') logger.warn('getPipeline REST failed', { error: pipelineResult.reason?.message });
+    if (jobsResult.status     === 'rejected') logger.warn('getFailedJobs REST failed', { error: jobsResult.reason?.message });
+    if (commitResult.status   === 'rejected') logger.warn('getCommit REST failed', { error: commitResult.reason?.message });
 
-    const pipeline  = pipelineResult.status  === 'fulfilled' ? pipelineResult.value  : fallbackPipeline;
-    const failedJobs = jobsResult.status     === 'fulfilled' ? (jobsResult.value ?? []) : fallbackJobs;
-    const commit    = commitResult.status    === 'fulfilled' ? commitResult.value     : fallbackCommit;
+    const pipeline   = pipelineResult.status === 'fulfilled' ? pipelineResult.value        : fallbackPipeline;
+    const failedJobs = jobsResult.status     === 'fulfilled' ? (jobsResult.value ?? [])    : fallbackJobs;
+    const commit     = commitResult.status   === 'fulfilled' ? commitResult.value           : fallbackCommit;
 
-    // Fetch job logs sequentially (rate-limit safe)
     const jobLogs = {};
     for (const job of failedJobs.slice(0, 5)) {
-      const log = await this.gitlab.getJobLog(projectId, job.id, 8000);
-      jobLogs[job.id] = log;
+      jobLogs[job.id] = await this.gitlab.getJobLog(projectId, job.id, 8000);
     }
 
-    return { pipeline, failedJobs, commit, jobLogs };
+    return { pipeline, failedJobs, commit, jobLogs, mcpUsed: false };
   }
 
   // ---------------------------------------------------------------------------
@@ -248,13 +269,23 @@ export class DevOpsAgent {
   async executeResolution(analysis, event, incidentId, ctx) {
     const projectId = String(event?.project?.id ?? '');
 
-    const issueBody = this.formatIssueBody(analysis, event, incidentId);
-    const issue = await this.gitlab.createIssue({
-      projectId,
-      title:  `🤖 [Agent] ${analysis.title ?? 'Pipeline failure analysis'}`,
-      body:   issueBody,
-      labels: ['devops-agent', 'incident', analysis.confidenceLabel ?? 'low'],
+    const issueBody  = this.formatIssueBody(analysis, event, incidentId);
+    const issueTitle = `🤖 [Agent] ${analysis.title ?? 'Pipeline failure analysis'}`;
+    const issueLabels = ['devops-agent', 'incident', analysis.confidenceLabel ?? 'low'];
+
+    // Try MCP create_issue first, fall back to REST
+    // MCP tool: create_issue via https://gitlab.com/api/v4/mcp
+    let issue = await this.gitlabMCP.createIssueFull({
+      projectId, title: issueTitle, body: issueBody, labels: issueLabels,
     });
+
+    if (issue) {
+      logger.info('GitLab issue created via MCP server', { issueId: issue.iid, url: issue.web_url });
+    } else {
+      issue = await this.gitlab.createIssue({
+        projectId, title: issueTitle, body: issueBody, labels: issueLabels,
+      });
+    }
 
     const resolution = {
       issueUrl: issue.web_url ?? null,

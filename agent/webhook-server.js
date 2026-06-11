@@ -15,7 +15,7 @@ console.log('Webhook server placeholder');
 // - Queue processing to prevent thundering herd
 // - Provide health check endpoint
 
-const express = require('express');
+import express from 'express';
 const app = express();
 const PORT = process.env.WEBHOOK_PORT || 3000;
 
