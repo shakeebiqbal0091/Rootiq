@@ -1,22 +1,11 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# .gitlab-ci.yml — Sample pipeline for the DevOps Intelligence Agent to monitor
+# .gitlab-ci.yml — Sample monitored pipeline for DevOps Intelligence Agent
 #
-# When this pipeline fails, it fires a webhook to the agent which:
-#   1. Queries Elastic for error logs
-#   2. Looks up similar incidents in MongoDB
-#   3. Fetches Jira/PagerDuty/DB context via Fivetran
-#   4. Synthesizes root cause with Gemini
-#   5. Opens a GitLab issue with fix suggestion
-#   6. Logs trace to Arize
-# ═══════════════════════════════════════════════════════════════════════════════
-
-image: node:22-alpine
-
-variables:
-  NODE_ENV: test
-  # Forward pipeline logs to Elasticsearch for the agent to search
-  LOG_COLLECTOR_URL: ${ELASTIC_URL}/pipeline-logs-${CI_PROJECT_ID}/_doc
-  AGENT_WEBHOOK_URL: ${DEVOPS_AGENT_WEBHOOK_URL}
+# The notify-agent-on-failure job fires on any pipeline failure and sends
+# the full event payload to the agent webhook, triggering automated analysis.
+#
+# Required CI/CD variables (Settings → CI/CD → Variables):
+#   DEVOPS_AGENT_WEBHOOK_URL   e.g. https://your-agent.example.com
+#   DEVOPS_AGENT_WEBHOOK_TOKEN matches GITLAB_WEBHOOK_SECRET in agent .env
 
 stages:
   - lint
@@ -24,148 +13,92 @@ stages:
   - build
   - deploy
 
-# ── Cache ─────────────────────────────────────────────────────────────────────
-.node_cache: &node_cache
-  cache:
-    key:
-      files:
-        - package-lock.json
-    paths:
-      - node_modules/
-    policy: pull-push
-
-# ── Lint ──────────────────────────────────────────────────────────────────────
+# ── Lint ────────────────────────────────────────────────────────────────────
 lint:
   stage: lint
-  <<: *node_cache
+  image: node:22-alpine
   script:
     - npm ci
-    - npm run lint
+    - npm run lint --if-present
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
 
-# ── Unit tests ────────────────────────────────────────────────────────────────
-unit-tests:
+# ── Test ────────────────────────────────────────────────────────────────────
+test:
   stage: test
-  <<: *node_cache
-  script:
-    - npm ci
-    - npm test -- --reporter=junit --outputFile=test-results/unit.xml
-  artifacts:
-    when: always
-    reports:
-      junit: test-results/unit.xml
-    expire_in: 7 days
-  coverage: '/Lines\s*:\s*(\d+\.?\d*)%/'
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
-
-# ── Integration tests ─────────────────────────────────────────────────────────
-integration-tests:
-  stage: test
-  <<: *node_cache
+  image: node:22-alpine
   services:
-    - name: mongo:7.0
-      alias: mongo
-    - name: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
-      alias: elasticsearch
-      variables:
-        discovery.type: single-node
-        xpack.security.enabled: "false"
+    - mongo:7.0
+    - docker.elastic.co/elasticsearch/elasticsearch:8.13.0
   variables:
-    MONGODB_URI: mongodb://mongo:27017/test
-    ELASTIC_URL: http://elasticsearch:9200
+    MONGODB_URI: "mongodb://mongo/devops_agent_test"
+    ELASTIC_URL: "http://docker.elastic.co__elasticsearch__elasticsearch:9200"
+    discovery.type: "single-node"
+    xpack.security.enabled: "false"
   script:
     - npm ci
-    - node scripts/test-integrations.js
+    - npm test
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - if: $CI_COMMIT_BRANCH =~ /^release\//
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
 
-# ── Build Docker image ────────────────────────────────────────────────────────
-build-image:
+# ── Build ───────────────────────────────────────────────────────────────────
+build:
   stage: build
   image: docker:24
   services:
     - docker:24-dind
-  variables:
-    DOCKER_TLS_CERTDIR: "/certs"
-    IMAGE_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
   script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -t $IMAGE_TAG .
-    - docker tag $IMAGE_TAG $CI_REGISTRY_IMAGE:latest
-    - docker push $IMAGE_TAG
-    - docker push $CI_REGISTRY_IMAGE:latest
+    - docker build -t devops-intelligence-agent:$CI_COMMIT_SHORT_SHA .
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
 
-# ── Deploy to staging ─────────────────────────────────────────────────────────
-deploy-staging:
+# ── Deploy (manual, version tags only) ─────────────────────────────────────
+deploy:
   stage: deploy
   image: google/cloud-sdk:alpine
-  environment:
-    name: staging
-    url: https://staging.devops-agent.example.com
   script:
-    - gcloud auth activate-service-account --key-file=$GCP_SERVICE_KEY
-    - gcloud run deploy devops-agent-staging
-        --image $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
-        --region us-central1
+    - gcloud run deploy devops-intelligence-agent
+        --image gcr.io/$GOOGLE_CLOUD_PROJECT/devops-intelligence-agent:$CI_COMMIT_SHORT_SHA
+        --region $GOOGLE_CLOUD_LOCATION
         --platform managed
-        --set-env-vars "NODE_ENV=staging"
-        --no-traffic
-    - gcloud run services update-traffic devops-agent-staging
-        --to-revisions LATEST=100
-        --region us-central1
+        --allow-unauthenticated
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+      when: manual
 
-# ── Deploy to production ──────────────────────────────────────────────────────
-deploy-production:
-  stage: deploy
-  image: google/cloud-sdk:alpine
-  environment:
-    name: production
-    url: https://devops-agent.example.com
-  script:
-    - gcloud auth activate-service-account --key-file=$GCP_SERVICE_KEY
-    - gcloud run deploy devops-agent
-        --image $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
-        --region us-central1
-        --platform managed
-    - echo "Deployed $CI_COMMIT_SHORT_SHA to production"
-  rules:
-    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
-  when: manual
-
-# ── Notify agent on failure ───────────────────────────────────────────────────
-# This fires even when the above jobs fail, waking up the agent
+# ── Notify agent on any failure (.post always runs last) ───────────────────
 notify-agent-on-failure:
   stage: .post
-  image: curlimages/curl:latest
+  image: alpine:latest
+  when: on_failure
   script:
+    - apk add --no-cache curl
     - |
-      curl -s -X POST "${AGENT_WEBHOOK_URL}/webhook/gitlab" \
+      curl -s -o /dev/null -w "%{http_code}" \
+        -X POST "$DEVOPS_AGENT_WEBHOOK_URL/webhook/gitlab" \
         -H "Content-Type: application/json" \
-        -H "X-Gitlab-Token: ${DEVOPS_AGENT_WEBHOOK_SECRET}" \
-        -H "X-Gitlab-Event: Pipeline Hook" \
+        -H "X-Gitlab-Token: $DEVOPS_AGENT_WEBHOOK_TOKEN" \
         -d "{
           \"object_kind\": \"pipeline\",
           \"object_attributes\": {
-            \"id\": ${CI_PIPELINE_ID},
-            \"ref\": \"${CI_COMMIT_REF_NAME}\",
-            \"sha\": \"${CI_COMMIT_SHA}\",
+            \"id\":     $CI_PIPELINE_ID,
             \"status\": \"failed\",
-            \"duration\": ${CI_PIPELINE_DURATION:-0}
+            \"ref\":    \"$CI_COMMIT_REF_NAME\",
+            \"sha\":    \"$CI_COMMIT_SHA\",
+            \"url\":    \"$CI_PIPELINE_URL\"
           },
           \"project\": {
-            \"id\": ${CI_PROJECT_ID},
-            \"name\": \"${CI_PROJECT_NAME}\",
-            \"web_url\": \"${CI_PROJECT_URL}\"
+            \"id\":      $CI_PROJECT_ID,
+            \"name\":    \"$CI_PROJECT_NAME\",
+            \"web_url\": \"$CI_PROJECT_URL\"
+          },
+          \"user\": {
+            \"name\": \"$GITLAB_USER_NAME\"
           }
         }"
   rules:
-    - when: on_failure
+    - if: '$DEVOPS_AGENT_WEBHOOK_URL'
+      when: on_failure

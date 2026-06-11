@@ -1,77 +1,31 @@
-version: '3.9'
+# docker-compose.yml — DevOps Intelligence Agent full stack
+#
+# Usage:
+#   docker-compose up --build              # core stack
+#   docker-compose --profile observability up --build  # + Kibana + Mongo Express
+#
+# The agent degrades gracefully if Elastic/Mongo take time to start.
+# All credentials come from .env — copy .env.example to .env first.
 
 services:
-
-  # ── DevOps Intelligence Agent ───────────────────────────────────────────────
-  agent:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      NODE_ENV: development
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      GITLAB_URL: ${GITLAB_URL:-https://gitlab.com}
-      GITLAB_TOKEN: ${GITLAB_TOKEN}
-      GITLAB_WEBHOOK_SECRET: ${GITLAB_WEBHOOK_SECRET:-dev-secret}
-      GITLAB_PROJECT_ID: ${GITLAB_PROJECT_ID}
-      ELASTIC_URL: http://elasticsearch:9200
-      ELASTIC_API_KEY: ${ELASTIC_API_KEY:-}
-      ELASTIC_LOG_INDEX: ${ELASTIC_LOG_INDEX:-pipeline-logs-*}
-      MONGODB_URI: mongodb://mongo:27017/devops_agent
-      MONGODB_DB: devops_agent
-      ARIZE_API_KEY: ${ARIZE_API_KEY:-}
-      ARIZE_SPACE_ID: ${ARIZE_SPACE_ID:-}
-      ARIZE_MODEL_ID: devops-intelligence-agent
-      FIVETRAN_API_KEY: ${FIVETRAN_API_KEY:-}
-      FIVETRAN_API_SECRET: ${FIVETRAN_API_SECRET:-}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-      mongo:
-        condition: service_healthy
-    restart: unless-stopped
-    volumes:
-      - ./agent:/app/agent:ro
-      - ./tools:/app/tools:ro
-    networks:
-      - devops-net
-
-  # ── Dashboard (React frontend) ──────────────────────────────────────────────
-  dashboard:
-    build:
-      context: ./dashboard
-      dockerfile: Dockerfile
-    ports:
-      - "5173:5173"
-    environment:
-      VITE_AGENT_URL: http://localhost:3000
-      VITE_WS_URL: ws://localhost:3000
-    depends_on:
-      - agent
-    networks:
-      - devops-net
 
   # ── Elasticsearch ───────────────────────────────────────────────────────────
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
     environment:
-      discovery.type: single-node
-      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
-      xpack.security.enabled: "false"
-      xpack.security.http.ssl.enabled: "false"
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
       - "9200:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 5
       start_period: 40s
-    networks:
-      - devops-net
 
   # ── MongoDB ─────────────────────────────────────────────────────────────────
   mongo:
@@ -81,50 +35,75 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
-    networks:
-      - devops-net
+      start_period: 15s
 
-  # ── Kibana (log explorer UI) ─────────────────────────────────────────────────
+  # ── Agent (webhook server) ──────────────────────────────────────────────────
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "${WEBHOOK_PORT:-3000}:3000"
+    env_file: .env
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/devops_agent
+      - ELASTIC_URL=http://elasticsearch:9200
+      - NODE_ENV=production
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    volumes:
+      # Hot-reload in dev: mount agent/ and tools/ as read-only
+      - ./agent:/app/agent:ro
+      - ./tools:/app/tools:ro
+    restart: unless-stopped
+
+  # ── Dashboard ───────────────────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      - agent
+    restart: unless-stopped
+
+  # ── Kibana (optional — run with --profile observability) ────────────────────
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.0
     ports:
       - "5601:5601"
     environment:
-      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     depends_on:
       elasticsearch:
         condition: service_healthy
-    networks:
-      - devops-net
     profiles:
       - observability
 
-  # ── Mongo Express (DB explorer UI) ──────────────────────────────────────────
+  # ── Mongo Express (optional — run with --profile observability) ─────────────
   mongo-express:
     image: mongo-express:latest
     ports:
       - "8081:8081"
     environment:
-      ME_CONFIG_MONGODB_SERVER: mongo
-      ME_CONFIG_MONGODB_PORT: "27017"
-      ME_CONFIG_BASICAUTH: "false"
+      - ME_CONFIG_MONGODB_SERVER=mongo
+      - ME_CONFIG_BASICAUTH=false
     depends_on:
       mongo:
         condition: service_healthy
-    networks:
-      - devops-net
     profiles:
       - observability
 
 volumes:
   es_data:
   mongo_data:
-
-networks:
-  devops-net:
-    driver: bridge

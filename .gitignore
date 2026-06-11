@@ -19,3 +19,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+gitlab-ci.yml
+docker-compose.yml
+Dockerfile
