@@ -20,6 +20,3 @@ Thumbs.db
 .idea/
 *.swp
 
-gitlab-ci.yml
-docker-compose.yml
-Dockerfile
