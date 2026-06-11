@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Rootiq — AI Incident Responder</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d1117;
+    --bg2:       #161b22;
+    --bg3:       #1c2128;
+    --bg4:       #21262d;
+    --border:    #30363d;
+    --border2:   #3d444d;
+    --text:      #e6edf3;
+    --text2:     #8b949e;
+    --text3:     #6e7681;
+    --cyan:      #2dd4bf;
+    --cyan2:     #0d9488;
+    --purple:    #a78bfa;
+    --purple2:   #7c3aed;
+    --green:     #3fb950;
+    --green2:    #238636;
+    --red:       #f85149;
+    --red2:      #da3633;
+    --orange:    #e3b341;
+    --blue:      #58a6ff;
+    --blue2:     #1f6feb;
+
+    --gitlab:    #fc6d26;
+    --elastic:   #00bfb3;
+    --mongo:     #00ed64;
+    --arize:     #a78bfa;
+    --fivetran:  #0073ff;
+    --jira:      #0052cc;
+    --pager:     #06ac38;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; font-size: 13px; line-height: 1.5; }
+
+  /* ── NAV ── */
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; height: 52px;
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .nav-brand { display: flex; align-items: center; gap: 10px; }
+  .nav-logo { width: 28px; height: 28px; }
+  .nav-title { font-size: 18px; font-weight: 800; background: linear-gradient(135deg, var(--cyan), var(--purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.5px; }
+  .nav-sub { font-size: 10px; color: var(--text3); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; margin-top: -2px; }
+  .nav-tabs { display: flex; gap: 2px; }
+  .nav-tab { padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--text2); cursor: pointer; border: none; background: none; transition: all .15s; }
+  .nav-tab:hover { color: var(--text); background: var(--bg3); }
+  .nav-tab.active { color: var(--text); background: var(--bg4); }
+  .nav-right { display: flex; align-items: center; gap: 10px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  .status-label { font-size: 11px; color: var(--text2); }
+  .btn-trigger { background: var(--red2); color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .15s; }
+  .btn-trigger:hover { background: var(--red); }
+
+  /* ── LAYOUT ── */
+  .app { display: flex; height: calc(100vh - 52px); overflow: hidden; }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: 220px; flex-shrink: 0;
+    background: var(--bg2); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow-y: auto;
+  }
+  .sidebar-section { padding: 12px 8px 4px; }
+  .sidebar-label { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; padding: 0 8px; margin-bottom: 4px; }
+  .sidebar-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 6px; cursor: pointer;
+    font-size: 12px; color: var(--text2); font-weight: 500;
+    transition: all .12s; margin-bottom: 1px;
+  }
+  .sidebar-item:hover { background: var(--bg3); color: var(--text); }
+  .sidebar-item.active { background: var(--bg4); color: var(--text); }
+  .sidebar-icon { width: 16px; height: 16px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; }
+  .sidebar-badge { margin-left: auto; background: var(--bg4); color: var(--text2); font-size: 10px; padding: 1px 6px; border-radius: 10px; }
+  .sidebar-badge.red { background: var(--red2); color: #fff; }
+
+  /* ── MAIN CONTENT ── */
+  .main { flex: 1; overflow-y: auto; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ── SECTION HEADER ── */
+  .section-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2); position: sticky; top: 0; z-index: 10;
+  }
+  .section-num { width: 22px; height: 22px; border-radius: 50%; background: var(--cyan2); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .section-title { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: 0.04em; text-transform: uppercase; }
+
+  /* ═══════════════════════════════════════════════════════
+     PANEL 1 — HERO
+  ═══════════════════════════════════════════════════════ */
+  .hero-wrap {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    min-height: calc(100vh - 52px - 49px);
+  }
+  .hero-left {
+    background: linear-gradient(160deg, #0d1117 0%, #0f1923 50%, #0d1520 100%);
+    padding: 48px 40px;
+    display: flex; flex-direction: column; justify-content: center;
+    border-right: 1px solid var(--border);
+    position: relative; overflow: hidden;
+  }
+  .hero-left::before {
+    content: ''; position: absolute; top: -80px; left: -80px;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(45,212,191,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero-left::after {
+    content: ''; position: absolute; bottom: -60px; right: -60px;
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(167,139,250,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero-logo-wrap { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+  .hero-logo-icon { width: 56px; height: 56px; }
+  .hero-wordmark { font-size: 52px; font-weight: 900; background: linear-gradient(135deg, var(--cyan) 0%, var(--purple) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -2px; line-height: 1; }
+  .hero-tagline-top { font-size: 13px; font-weight: 700; color: var(--cyan); text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 8px; }
+  .hero-tagline { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1.3; margin-bottom: 6px; }
+  .hero-tagline span.cyan { color: var(--cyan); }
+  .hero-tagline span.purple { color: var(--purple); }
+  .hero-sub { font-size: 13px; color: var(--text2); line-height: 1.6; max-width: 380px; margin-bottom: 32px; }
+  .hero-flow { display: flex; align-items: center; gap: 0; margin-top: 8px; }
+  .hero-step { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .hero-step-icon { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--border2); background: var(--bg3); display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  .hero-step-label { font-size: 10px; font-weight: 600; color: var(--text2); text-align: center; max-width: 70px; line-height: 1.3; }
+  .hero-arrow { color: var(--text3); font-size: 16px; margin: 0 8px; margin-bottom: 24px; }
+
+  .hero-right {
+    background: var(--bg);
+    padding: 32px 32px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .hero-right-title { font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+
+  /* Stats row */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .stat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .stat-val { font-size: 26px; font-weight: 800; color: var(--text); line-height: 1; margin-bottom: 2px; }
+  .stat-val.green { color: var(--green); }
+  .stat-val.cyan { color: var(--cyan); }
+  .stat-val.purple { color: var(--purple); }
+  .stat-val.orange { color: var(--orange); }
+  .stat-label { font-size: 11px; color: var(--text2); }
+
+  /* Partner pills */
+  .partner-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .partner-pill { display: flex; align-items: center; gap: 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; font-size: 11px; font-weight: 600; color: var(--text); }
+  .partner-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  /* Recent incidents mini */
+  .mini-incident { display: flex; align-items: center; gap: 10px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .mini-incident + .mini-incident { margin-top: 6px; }
+  .mini-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; }
+  .mini-badge.resolved { background: rgba(63,185,80,0.15); color: var(--green); }
+  .mini-badge.analyzing { background: rgba(227,179,65,0.15); color: var(--orange); }
+  .mini-title { flex: 1; font-size: 12px; color: var(--text); font-weight: 500; }
+  .mini-conf { font-size: 11px; color: var(--text2); margin-left: auto; }
+
+  /* ═══════════════════════════════════════════════════════
+     PANEL 2 — ARCHITECTURE
+  ═══════════════════════════════════════════════════════ */
+  .arch-wrap { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+  .arch-diagram {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 32px; display: flex; flex-direction: column; align-items: center; gap: 0;
+  }
+  .arch-row { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 0; }
+  .arch-node {
+    background: var(--bg3); border: 1.5px solid var(--border2); border-radius: 10px;
+    padding: 12px 16px; text-align: center; min-width: 120px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .arch-node.center {
+    min-width: 160px; padding: 16px 20px;
+    background: linear-gradient(135deg, rgba(45,212,191,0.1), rgba(167,139,250,0.1));
+    border-color: var(--cyan2);
+  }
+  .arch-node-icon { font-size: 20px; margin-bottom: 2px; }
+  .arch-node-name { font-size: 12px; font-weight: 700; color: var(--text); }
+  .arch-node-sub { font-size: 10px; color: var(--text2); line-height: 1.3; max-width: 100px; }
+  .arch-arrow-v { width: 2px; height: 24px; background: var(--border2); margin: 0 auto; position: relative; }
+  .arch-arrow-v::after { content: '▼'; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%); font-size: 8px; color: var(--text3); }
+  .arch-row-mid { display: flex; align-items: center; gap: 0; width: 100%; justify-content: center; }
+  .arch-line-h { flex: 1; height: 2px; background: var(--border2); max-width: 40px; }
+  .arch-line-arrow { font-size: 8px; color: var(--text3); }
+  .arch-sources { display: flex; gap: 10px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+  .arch-source { display: flex; align-items: center; gap: 6px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; font-size: 11px; font-weight: 600; color: var(--text2); }
+
+  /* ═══════════════════════════════════════════════════════
+     PANEL 3 — LIVE PIPELINE FAILURE
+  ═══════════════════════════════════════════════════════ */
+  .pipeline-wrap { display: grid; grid-template-columns: 220px 1fr; height: 100%; }
+  .pipeline-sidebar { background: var(--bg2); border-right: 1px solid var(--border); padding: 0; overflow-y: auto; }
+  .pipeline-nav-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .pipeline-nav-item { display: flex; align-items: center; justify-content: space-between; padding: 7px 16px; font-size: 12px; color: var(--text2); cursor: pointer; }
+  .pipeline-nav-item:hover { background: var(--bg3); color: var(--text); }
+  .pipeline-nav-item.active { background: rgba(88,166,255,0.1); color: var(--blue); border-right: 2px solid var(--blue); }
+  .pipeline-main { padding: 0; overflow-y: auto; }
+  .pipeline-breadcrumb { padding: 10px 20px; border-bottom: 1px solid var(--border); font-size: 11px; color: var(--text2); }
+  .pipeline-breadcrumb span { color: var(--blue); cursor: pointer; }
+  .pipeline-header { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .pipeline-title-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .failed-badge { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid rgba(248,81,73,0.3); border-radius: 6px; font-size: 11px; font-weight: 700; padding: 3px 10px; display: flex; align-items: center; gap: 5px; }
+  .pipeline-id { font-size: 20px; font-weight: 700; color: var(--text); }
+  .pipeline-meta { font-size: 12px; color: var(--text2); }
+  .pipeline-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 20px; }
+  .pipeline-tab { padding: 10px 14px; font-size: 12px; font-weight: 500; color: var(--text2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .pipeline-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .pipeline-jobs { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .job-row { display: flex; align-items: center; gap: 10px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+  .job-status-icon { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; }
+  .job-status-icon.failed { background: rgba(248,81,73,0.2); color: var(--red); }
+  .job-status-icon.success { background: rgba(63,185,80,0.2); color: var(--green); }
+  .job-status-icon.canceled { background: rgba(139,148,158,0.2); color: var(--text2); }
+  .job-name { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; }
+  .job-duration { font-size: 11px; color: var(--text2); }
+  .error-box { margin: 0 20px 16px; background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.25); border-radius: 8px; padding: 14px; }
+  .error-box-title { font-size: 11px; font-weight: 700; color: var(--red); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .error-code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text); line-height: 1.6; }
+
+  /* ═══════════════════════════════════════════════════════
+     PANEL 4 — AI ROOT CAUSE ANALYSIS
+  ═══════════════════════════════════════════════════════ */
+  .rca-wrap { padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .rca-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .rca-card.full { grid-column: 1 / -1; }
+  .rca-card-label { font-size: 10px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+  .rca-root-cause { display: flex; align-items: flex-start; gap: 14px; }
+  .rca-brain { width: 44px; height: 44px; border-radius: 10px; background: rgba(167,139,250,0.15); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+  .rca-cause-text { font-size: 16px; font-weight: 700; color: var(--text); line-height: 1.35; }
+  .confidence-val { font-size: 36px; font-weight: 800; color: var(--green); line-height: 1; margin-bottom: 8px; }
+  .confidence-bar-bg { height: 8px; background: var(--bg4); border-radius: 4px; overflow: hidden; }
+  .confidence-bar { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--green2), var(--green)); transition: width 1s ease; }
+  .what-text { font-size: 12px; color: var(--text2); line-height: 1.6; }
+  .why-list { list-style: none; }
+  .why-list li { font-size: 12px; color: var(--text2); padding: 3px 0; display: flex; align-items: flex-start; gap: 6px; }
+  .why-list li::before { content: '·'; color: var(--cyan); font-weight: 700; flex-shrink: 0; }
+  .similar-list { display: flex; flex-direction: column; gap: 8px; }
+  .similar-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg3); border-radius: 6px; }
+  .similar-id { font-size: 11px; font-weight: 700; color: var(--blue); min-width: 60px; }
+  .similar-title { font-size: 11px; color: var(--text2); flex: 1; }
+  .similar-match { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(45,212,191,0.15); color: var(--cyan); }
+  .similar-age { font-size: 10px; color: var(--text3); }
+  .fix-code { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text); line-height: 1.8; margin-bottom: 12px; }
+  .btn-patch { width: 100%; background: var(--purple2); color: #fff; border: none; border-radius: 8px; padding: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background .15s; }
+  .btn-patch:hover { background: var(--arize); }
+
+  /* ═══════════════════════════════════════════════════════
+     PANEL 5 — ARIZE OBSERVABILITY
+  ═══════════════════════════════════════════════════════ */
+  .arize-wrap { display: grid; grid-template-columns: 180px 1fr; height: 100%; }
+  .arize-sidebar { background: var(--bg2); border-right: 1px solid var(--border); padding: 16px 0; }
+  .arize-nav-item { padding: 7px 16px; font-size: 12px; color: var(--text2); cursor: pointer; }
+  .arize-nav-item:hover { background: var(--bg3); color: var(--text); }
+  .arize-nav-item.active { background: rgba(167,139,250,0.1); color: var(--arize); border-right: 2px solid var(--arize); }
+  .arize-main { padding: 0; overflow-y: auto; }
+  .arize-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .arize-logo { font-size: 15px; font-weight: 800; color: var(--arize); display: flex; align-items: center; gap: 8px; }
+  .arize-tabs { display: flex; gap: 2px; }
+  .arize-tab { padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--text2); cursor: pointer; }
+  .arize-tab.active { background: var(--bg3); color: var(--text); }
+  .trace-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .trace-id { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text2); }
+  .btn-share { background: var(--bg4); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 12px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: auto; }
+  .trace-timeline { padding: 20px; }
+  .trace-title { font-size: 12px; font-weight: 700; color: var(--text2); margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .trace-steps { display: flex; align-items: center; gap: 0; margin-bottom: 24px; overflow-x: auto; padding-bottom: 4px; }
+  .trace-step { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 80px; }
+  .trace-step-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; border: 2px solid var(--border2); background: var(--bg3); }
+  .trace-step-name { font-size: 11px; font-weight: 600; color: var(--text); text-align: center; }
+  .trace-step-tool { font-size: 10px; color: var(--text2); }
+  .trace-step-time { font-size: 10px; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
+  .trace-arrow { color: var(--text3); font-size: 14px; margin: 0 4px; margin-bottom: 36px; flex-shrink: 0; }
+  .trace-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .trace-panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .trace-panel-title { font-size: 10px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+  .trace-context-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .trace-context-item:last-child { border-bottom: none; }
+  .trace-context-icon { font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+  .trace-context-text { font-size: 11px; color: var(--text2); line-height: 1.4; flex: 1; }
+  .trace-context-match { font-size: 10px; color: var(--cyan); font-weight: 600; }
+  .trace-output { font-size: 12px; color: var(--text); line-height: 1.6; }
+  .trace-footer { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 14px 20px; border-top: 1px solid var(--border); background: var(--bg2); }
+  .trace-meta { text-align: center; }
+  .trace-meta-label { font-size: 10px; color: var(--text3); margin-bottom: 2px; }
+  .trace-meta-val { font-size: 13px; font-weight: 700; color: var(--text); }
+
+  /* ═══════════════════════════════════════════════════════
+     PANEL 6 — AUTO-GENERATED GITLAB ISSUE / PR
+  ═══════════════════════════════════════════════════════ */
+  .issue-wrap { display: grid; grid-template-columns: 220px 1fr; height: 100%; }
+  .issue-sidebar { background: var(--bg2); border-right: 1px solid var(--border); padding: 0; }
+  .issue-main { padding: 0; overflow-y: auto; }
+  .issue-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .issue-header-left { display: flex; align-items: center; gap: 8px; }
+  .issue-num { font-size: 18px; font-weight: 700; color: var(--text); }
+  .open-badge { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); border-radius: 20px; font-size: 11px; font-weight: 700; padding: 3px 12px; }
+  .issue-creator { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 6px; }
+  .bot-icon { width: 16px; height: 16px; border-radius: 50%; background: var(--cyan2); display: inline-flex; align-items: center; justify-content: center; font-size: 9px; }
+  .issue-title { font-size: 18px; font-weight: 700; color: var(--text); padding: 16px 20px 0; line-height: 1.35; }
+  .issue-body { padding: 16px 20px; }
+  .issue-section-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 6px; margin-top: 16px; }
+  .issue-section-title:first-child { margin-top: 0; }
+  .issue-text { font-size: 13px; color: var(--text2); line-height: 1.6; }
+  .issue-fix-list { list-style: none; }
+  .issue-fix-list li { font-size: 13px; color: var(--text2); padding: 2px 0; display: flex; gap: 6px; align-items: flex-start; }
+  .issue-fix-list li::before { content: '•'; color: var(--green); flex-shrink: 0; }
+  .diff-block { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-top: 8px; }
+  .diff-header { padding: 6px 12px; background: var(--bg4); border-bottom: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text2); }
+  .diff-line { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 12px; line-height: 1.6; }
+  .diff-line.removed { background: rgba(248,81,73,0.12); color: #ffa198; }
+  .diff-line.added { background: rgba(63,185,80,0.12); color: #7ee787; }
+  .diff-line.context { color: var(--text2); }
+  .issue-footer { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--border); background: var(--bg2); }
+  .reaction { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text2); }
+  .btn-mr { background: var(--blue2); color: #fff; border: none; border-radius: 6px; padding: 8px 18px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: auto; display: flex; align-items: center; gap: 6px; transition: background .15s; }
+  .btn-mr:hover { background: var(--blue); }
+
+  /* ── ANIMATIONS ── */
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  .panel.active { animation: fadeIn .2s ease; }
+
+  /* ── ANALYZING OVERLAY ── */
+  .analyzing-bar {
+    background: linear-gradient(90deg, var(--bg2), rgba(45,212,191,0.08), var(--bg2));
+    border: 1px solid rgba(45,212,191,0.2);
+    border-radius: 8px; padding: 12px 16px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--cyan); font-weight: 500;
+  }
+  .analyzing-spinner { width: 14px; height: 14px; border: 2px solid rgba(45,212,191,0.3); border-top-color: var(--cyan); border-radius: 50%; animation: spin .8s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ── NAV ── -->
+<nav>
+  <div class="nav-brand">
+    <svg class="nav-logo" viewBox="0 0 28 28" fill="none">
+      <circle cx="14" cy="14" r="13" stroke="url(#lg1)" stroke-width="1.5"/>
+      <circle cx="14" cy="7" r="2.5" fill="#2dd4bf"/>
+      <circle cx="21" cy="19" r="2.5" fill="#a78bfa"/>
+      <circle cx="7" cy="19" r="2.5" fill="#58a6ff"/>
+      <line x1="14" y1="9.5" x2="21" y2="17" stroke="#2dd4bf" stroke-width="1" opacity=".6"/>
+      <line x1="14" y1="9.5" x2="7" y2="17" stroke="#a78bfa" stroke-width="1" opacity=".6"/>
+      <line x1="9" y1="19" x2="19" y2="19" stroke="#58a6ff" stroke-width="1" opacity=".6"/>
+      <defs><linearGradient id="lg1" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#2dd4bf"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>
+    </svg>
+    <div>
+      <div class="nav-title">Rootiq</div>
+      <div class="nav-sub">AI Incident Responder</div>
+    </div>
+  </div>
+
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showPanel('hero',this)">① Hero</button>
+    <button class="nav-tab" onclick="showPanel('arch',this)">② Architecture</button>
+    <button class="nav-tab" onclick="showPanel('pipeline',this)">③ Live Failure</button>
+    <button class="nav-tab" onclick="showPanel('rca',this)">④ Root Cause</button>
+    <button class="nav-tab" onclick="showPanel('arize',this)">⑤ Arize Trace</button>
+    <button class="nav-tab" onclick="showPanel('issue',this)">⑥ GitLab Issue</button>
+  </div>
+
+  <div class="nav-right">
+    <div class="status-dot"></div>
+    <span class="status-label">Agent online</span>
+    <button class="btn-trigger" onclick="triggerDemo()">🚨 Trigger Failure</button>
+  </div>
+</nav>
+
+<div class="app">
+
+  <!-- ═══════════════════════════════════════
+       PANEL 1 — HERO
+  ═══════════════════════════════════════ -->
+  <div class="panel active" id="panel-hero" style="width:100%;overflow-y:auto;">
+    <div class="section-header">
+      <div class="section-num">1</div>
+      <div class="section-title">Hero — Rootiq</div>
+    </div>
+    <div class="hero-wrap">
+      <div class="hero-left">
+        <div class="hero-logo-wrap">
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <circle cx="28" cy="28" r="27" stroke="url(#hg)" stroke-width="1.5"/>
+            <circle cx="28" cy="12" r="5" fill="#2dd4bf"/>
+            <circle cx="44" cy="40" r="5" fill="#a78bfa"/>
+            <circle cx="12" cy="40" r="5" fill="#58a6ff"/>
+            <line x1="28" y1="17" x2="44" y2="35" stroke="#2dd4bf" stroke-width="1.5" opacity=".7"/>
+            <line x1="28" y1="17" x2="12" y2="35" stroke="#a78bfa" stroke-width="1.5" opacity=".7"/>
+            <line x1="15" y1="40" x2="41" y2="40" stroke="#58a6ff" stroke-width="1.5" opacity=".7"/>
+            <defs><linearGradient id="hg" x1="0" y1="0" x2="56" y2="56"><stop stop-color="#2dd4bf"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>
+          </svg>
+          <div class="hero-wordmark">Rootiq</div>
+        </div>
+        <div class="hero-tagline-top">AI Incident Responder for Failed Pipelines</div>
+        <div class="hero-tagline">
+          Autonomously investigates failures,<br>
+          <span class="cyan">finds root causes</span>, and <span class="purple">opens fixes.</span>
+        </div>
+        <div class="hero-sub">
+          An AI incident responder that never sleeps — the moment your GitLab pipeline fails, it wakes up, tears through Elasticsearch logs, cross-references your incident history in MongoDB, pulls live context via Fivetran, and hands everything to Gemini to synthesize a precise root cause. Then opens the patch PR automatically.
+        </div>
+        <div class="hero-flow">
+          <div class="hero-step">
+            <div class="hero-step-icon">🚨</div>
+            <div class="hero-step-label">Pipeline Fails</div>
+          </div>
+          <div class="hero-arrow">→</div>
+          <div class="hero-step">
+            <div class="hero-step-icon">🧠</div>
+            <div class="hero-step-label">AI Investigates</div>
+          </div>
+          <div class="hero-arrow">→</div>
+          <div class="hero-step">
+            <div class="hero-step-icon">🎯</div>
+            <div class="hero-step-label">Root Cause Identified</div>
+          </div>
+          <div class="hero-arrow">→</div>
+          <div class="hero-step">
+            <div class="hero-step-icon">✅</div>
+            <div class="hero-step-label">Fix Suggested Automatically</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-right">
+        <div class="hero-right-title">Live stats</div>
+        <div class="stats-row">
+          <div class="stat-card"><div class="stat-val cyan">247</div><div class="stat-label">Incidents resolved</div></div>
+          <div class="stat-card"><div class="stat-val green">94%</div><div class="stat-label">Avg confidence</div></div>
+          <div class="stat-card"><div class="stat-val purple">38s</div><div class="stat-label">Avg resolution</div></div>
+          <div class="stat-card"><div class="stat-val orange">12</div><div class="stat-label">Auto-patches opened</div></div>
+        </div>
+
+        <div>
+          <div class="hero-right-title" style="margin-bottom:10px">Partner integrations</div>
+          <div class="partner-row">
+            <div class="partner-pill"><div class="partner-dot" style="background:var(--gitlab)"></div>GitLab</div>
+            <div class="partner-pill"><div class="partner-dot" style="background:var(--elastic)"></div>Elastic</div>
+            <div class="partner-pill"><div class="partner-dot" style="background:var(--mongo)"></div>MongoDB</div>
+            <div class="partner-pill"><div class="partner-dot" style="background:var(--arize)"></div>Arize</div>
+            <div class="partner-pill"><div class="partner-dot" style="background:var(--fivetran)"></div>Fivetran</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="hero-right-title" style="margin-bottom:8px">Recent incidents</div>
+          <div class="mini-incident">
+            <span class="mini-badge resolved">Resolved</span>
+            <span class="mini-title">DB connection timeout — core-platform</span>
+            <span class="mini-conf">92%</span>
+          </div>
+          <div class="mini-incident">
+            <span class="mini-badge resolved">Resolved</span>
+            <span class="mini-title">OOMKilled — data-pipeline build step</span>
+            <span class="mini-conf">88%</span>
+          </div>
+          <div class="mini-incident" id="hero-analyzing" style="display:none">
+            <span class="mini-badge analyzing">Analysing…</span>
+            <span class="mini-title">Jest test suite — frontend-app</span>
+            <span class="mini-conf">—</span>
+          </div>
+        </div>
+
+        <div id="hero-bar" style="display:none">
+          <div class="analyzing-bar">
+            <div class="analyzing-spinner"></div>
+            Agent is analysing pipeline #9999 on <strong style="margin:0 4px">feat/demo-trigger</strong> — querying Elastic logs…
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       PANEL 2 — ARCHITECTURE
+  ═══════════════════════════════════════ -->
+  <div class="panel" id="panel-arch" style="width:100%;overflow-y:auto;">
+    <div class="section-header">
+      <div class="section-num">2</div>
+      <div class="section-title">Architecture</div>
+    </div>
+    <div class="arch-wrap">
+      <div class="arch-diagram">
+        <!-- Top: GitLab Pipeline Failure -->
+        <div class="arch-row">
+          <div class="arch-node" style="border-color:var(--gitlab)">
+            <div class="arch-node-icon">🦊</div>
+            <div class="arch-node-name" style="color:var(--gitlab)">GitLab</div>
+            <div class="arch-node-sub">Pipeline Failure</div>
+          </div>
+        </div>
+        <div class="arch-arrow-v"></div>
+
+        <!-- Middle row: Elastic + Center Agent + Fivetran -->
+        <div class="arch-row-mid" style="gap:0;width:100%;max-width:680px;margin:0 auto">
+          <div class="arch-node" style="border-color:var(--elastic)">
+            <div class="arch-node-icon">🔍</div>
+            <div class="arch-node-name" style="color:var(--elastic)">Elastic</div>
+            <div class="arch-node-sub">Logs &amp; Error Traces</div>
+          </div>
+          <div style="flex:1;height:2px;background:var(--border2);position:relative">
+            <span style="position:absolute;right:-5px;top:-6px;color:var(--text3);font-size:10px">▶</span>
+          </div>
+          <div class="arch-node center">
+            <div class="arch-node-icon">🤖</div>
+            <div class="arch-node-name" style="color:var(--cyan)">Rootiq AI Agent</div>
+            <div class="arch-node-sub" style="font-size:11px;color:var(--text2)">Investigate • Analyse • Act</div>
+          </div>
+          <div style="flex:1;height:2px;background:var(--border2);position:relative">
+            <span style="position:absolute;left:-5px;top:-6px;color:var(--text3);font-size:10px">◀</span>
+          </div>
+          <div class="arch-node" style="border-color:var(--fivetran)">
+            <div class="arch-node-icon">🔗</div>
+            <div class="arch-node-name" style="color:var(--fivetran)">Fivetran</div>
+            <div class="arch-node-sub">Operational Data (Jira, PagerDuty, DB Metrics)</div>
+          </div>
+        </div>
+
+        <!-- Lower row: MongoDB + GitLab Issue + Arize -->
+        <div style="display:flex;gap:0;max-width:680px;width:100%;margin:0 auto;justify-content:center">
+          <div style="flex:1;display:flex;justify-content:center"><div class="arch-arrow-v"></div></div>
+          <div style="flex:1;display:flex;justify-content:center"><div class="arch-arrow-v"></div></div>
+          <div style="flex:1;display:flex;justify-content:center"><div class="arch-arrow-v"></div></div>
+        </div>
+
+        <div class="arch-row" style="max-width:680px;width:100%;justify-content:space-between">
+          <div class="arch-node" style="border-color:var(--mongo)">
+            <div class="arch-node-icon">🍃</div>
+            <div class="arch-node-name" style="color:var(--mongo)">MongoDB</div>
+            <div class="arch-node-sub">Similar Incidents &amp; Past Fixes</div>
+          </div>
+          <div class="arch-node" style="border-color:var(--gitlab)">
+            <div class="arch-node-icon">🦊</div>
+            <div class="arch-node-name" style="color:var(--gitlab)">GitLab</div>
+            <div class="arch-node-sub">Issue / Merge Request with Suggested Fix</div>
+          </div>
+          <div class="arch-node" style="border-color:var(--arize)">
+            <div class="arch-node-icon">🔭</div>
+            <div class="arch-node-name" style="color:var(--arize)">Arize</div>
+            <div class="arch-node-sub">Agent Observability &amp; Reasoning Trace</div>
+          </div>
+        </div>
+
+        <!-- Data sources -->
+        <div style="margin-top:28px;border-top:1px dashed var(--border);padding-top:20px;width:100%">
+          <div style="font-size:10px;color:var(--text3);text-align:center;margin-bottom:12px;text-transform:uppercase;letter-spacing:.08em">Fivetran-synced sources</div>
+          <div class="arch-sources">
+            <div class="arch-source"><span style="color:var(--jira)">◆</span> Jira</div>
+            <div class="arch-source"><span style="color:var(--pager)">🔔</span> PagerDuty</div>
+            <div class="arch-source"><span>🗄️</span> DB Metrics</div>
+            <div class="arch-source"><span>···</span> More Sources</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step-by-step legend -->
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-size:18px;margin-bottom:6px">1️⃣</div>
+          <div style="font-size:12px;font-weight:700;color:var(--gitlab);margin-bottom:4px">GitLab fires</div>
+          <div style="font-size:11px;color:var(--text2)">Pipeline failure webhook triggers the agent</div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-size:18px;margin-bottom:6px">2️⃣</div>
+          <div style="font-size:12px;font-weight:700;color:var(--elastic);margin-bottom:4px">Elastic searches</div>
+          <div style="font-size:11px;color:var(--text2)">Error logs queried in real time</div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-size:18px;margin-bottom:6px">3️⃣</div>
+          <div style="font-size:12px;font-weight:700;color:var(--mongo);margin-bottom:4px">MongoDB recalls</div>
+          <div style="font-size:11px;color:var(--text2)">Similar past incidents retrieved</div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-size:18px;margin-bottom:6px">4️⃣</div>
+          <div style="font-size:12px;font-weight:700;color:var(--fivetran);margin-bottom:4px">Fivetran enriches</div>
+          <div style="font-size:11px;color:var(--text2)">Jira, PagerDuty, DB metrics added</div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-size:18px;margin-bottom:6px">5️⃣</div>
+          <div style="font-size:12px;font-weight:700;color:var(--cyan);margin-bottom:4px">Gemini synthesises</div>
+          <div style="font-size:11px;color:var(--text2)">Root cause + patch PR created</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       PANEL 3 — LIVE PIPELINE FAILURE
+  ═══════════════════════════════════════ -->
+  <div class="panel" id="panel-pipeline" style="width:100%">
+    <div class="section-header">
+      <div class="section-num">3</div>
+      <div class="section-title">Live Pipeline Failure</div>
+    </div>
+    <div class="pipeline-wrap" style="height:calc(100% - 49px)">
+      <div class="pipeline-sidebar">
+        <div class="pipeline-nav-header">
+          <span style="font-size:16px">🦊</span>
+          <span style="font-size:13px;font-weight:700;color:var(--text)">GitLab</span>
+        </div>
+        <div style="padding:8px 0">
+          <div class="pipeline-nav-item">Project information</div>
+          <div class="pipeline-nav-item">Repository</div>
+          <div class="pipeline-nav-item">Issues <span style="margin-left:auto;font-size:10px;background:var(--bg4);padding:1px 6px;border-radius:10px">12</span></div>
+          <div class="pipeline-nav-item">Merge requests <span style="margin-left:auto;font-size:10px;background:var(--bg4);padding:1px 6px;border-radius:10px">3</span></div>
+          <div style="padding:6px 16px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-top:8px">CI / CD</div>
+          <div class="pipeline-nav-item active">Pipelines</div>
+          <div class="pipeline-nav-item">Jobs</div>
+          <div class="pipeline-nav-item">Schedules</div>
+          <div style="padding:6px 16px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-top:8px">Security</div>
+          <div class="pipeline-nav-item">Security &amp; Compliance</div>
+          <div class="pipeline-nav-item">Deployments</div>
+          <div class="pipeline-nav-item">Monitor</div>
+          <div class="pipeline-nav-item">Settings</div>
+        </div>
+      </div>
+      <div class="pipeline-main">
+        <div class="pipeline-breadcrumb">
+          <span>my-org</span> / <span>awesome-service</span> / <span>Pipelines</span> / #872341
+        </div>
+        <div class="pipeline-header">
+          <div class="pipeline-title-row">
+            <div class="failed-badge">⊗ failed</div>
+            <div class="pipeline-id">Pipeline #872341</div>
+          </div>
+          <div class="pipeline-meta">Triggered 2 minutes ago by 🟢 <strong>dev-user</strong></div>
+        </div>
+        <div class="pipeline-tabs">
+          <div class="pipeline-tab active">Pipeline</div>
+          <div class="pipeline-tab">Needs</div>
+          <div class="pipeline-tab">Jobs <span style="background:var(--bg4);padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px">7</span></div>
+          <div class="pipeline-tab">Tests <span style="background:var(--bg4);padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px">2</span></div>
+        </div>
+        <div class="pipeline-jobs">
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div class="job-row" style="flex:1;min-width:160px">
+              <div class="job-status-icon failed">⊗</div>
+              <div class="job-name">build</div>
+              <div class="job-duration">12s</div>
+            </div>
+            <div class="job-row" style="flex:1;min-width:160px">
+              <div class="job-status-icon failed">⊗</div>
+              <div class="job-name">test</div>
+              <div class="job-duration">18s</div>
+            </div>
+            <div class="job-row" style="flex:1;min-width:160px">
+              <div class="job-status-icon success">✓</div>
+              <div class="job-name">lint</div>
+              <div class="job-duration">8s</div>
+            </div>
+            <div class="job-row" style="flex:1;min-width:160px">
+              <div class="job-status-icon canceled">○</div>
+              <div class="job-name">deploy</div>
+              <div class="job-duration">5s</div>
+            </div>
+          </div>
+        </div>
+        <div class="error-box">
+          <div class="error-box-title">Job failed</div>
+          <div class="error-code">ERROR: Database connection timeout<br>  at connect (db.js:42:15)<br>Caused by: ECONNREFUSED 10.0.2.15:5432</div>
+        </div>
+        <div style="padding:0 20px 16px">
+          <div class="analyzing-bar" id="pipeline-analyzing">
+            <div class="analyzing-spinner"></div>
+            Rootiq is investigating this failure — querying Elasticsearch for related logs…
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       PANEL 4 — AI ROOT CAUSE ANALYSIS
+  ═══════════════════════════════════════ -->
+  <div class="panel" id="panel-rca" style="width:100%;overflow-y:auto;">
+    <div class="section-header">
+      <div class="section-num">4</div>
+      <div class="section-title">AI Root Cause Analysis</div>
+    </div>
+    <div class="rca-wrap">
+
+      <!-- Root cause -->
+      <div class="rca-card">
+        <div class="rca-card-label">Root Cause</div>
+        <div class="rca-root-cause">
+          <div class="rca-brain">🧠</div>
+          <div class="rca-cause-text">Database connection timeout due to exhausted connection pool.</div>
+        </div>
+      </div>
+
+      <!-- Confidence -->
+      <div class="rca-card">
+        <div class="rca-card-label">Confidence</div>
+        <div class="confidence-val">92%</div>
+        <div class="confidence-bar-bg">
+          <div class="confidence-bar" style="width:92%"></div>
+        </div>
+      </div>
+
+      <!-- What happened -->
+      <div class="rca-card">
+        <div class="rca-card-label">What happened?</div>
+        <div class="what-text">The application tried to acquire a new connection from the pool, but all connections were in use. This led to a timeout and pipeline failure during integration tests.</div>
+      </div>
+
+      <!-- Why -->
+      <div class="rca-card">
+        <div class="rca-card-label">Why?</div>
+        <ul class="why-list">
+          <li>High concurrent queries</li>
+          <li>Slow query in UserService</li>
+          <li>Connection pool limit reached (max: 20)</li>
+        </ul>
+      </div>
+
+      <!-- Similar incidents -->
+      <div class="rca-card">
+        <div class="rca-card-label" style="display:flex;justify-content:space-between">
+          Similar Incidents
+          <span style="color:var(--blue);cursor:pointer;font-weight:500">View all</span>
+        </div>
+        <div class="similar-list">
+          <div class="similar-item">
+            <div class="similar-id">INC-1024</div>
+            <div class="similar-title">Database connection timeout</div>
+            <div class="similar-match">92%</div>
+            <div class="similar-age">Fixed 2 weeks ago</div>
+          </div>
+          <div class="similar-item">
+            <div class="similar-id">INC-0987</div>
+            <div class="similar-title">Connection pool exhausted</div>
+            <div class="similar-match">89%</div>
+            <div class="similar-age">Fixed 1 month ago</div>
+          </div>
+          <div class="similar-item">
+            <div class="similar-id">INC-0751</div>
+            <div class="similar-title">Slow query causing timeout</div>
+            <div class="similar-match">84%</div>
+            <div class="similar-age">Fixed 2 months ago</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Suggested fix -->
+      <div class="rca-card">
+        <div class="rca-card-label">Suggested Fix</div>
+        <div class="fix-code">Increase connection pool size<br>and optimize slow query.<br><br>pool:<br>  max: 50<br>  idleTimeoutMillis: 30000<br>  connectionTimeoutMillis: 2000</div>
+        <button class="btn-patch" onclick="showPanel('issue',document.querySelectorAll('.nav-tab')[5])">
+          Generate Patch →
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       PANEL 5 — ARIZE OBSERVABILITY
+  ═══════════════════════════════════════ -->
+  <div class="panel" id="panel-arize" style="width:100%">
+    <div class="section-header">
+      <div class="section-num">5</div>
+      <div class="section-title">Arize Observability (Agent Trace)</div>
+    </div>
+    <div class="arize-wrap" style="height:calc(100% - 49px)">
+      <div class="arize-sidebar">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
+          <div style="font-size:16px;font-weight:800;color:var(--arize)">⚡ arize</div>
+        </div>
+        <div style="padding:8px 0">
+          <div class="arize-nav-item active">Tracing</div>
+          <div class="arize-nav-item">Traces</div>
+          <div class="arize-nav-item">Datasets</div>
+          <div class="arize-nav-item">Evaluations</div>
+          <div class="arize-nav-item">Dashboards</div>
+        </div>
+      </div>
+      <div class="arize-main">
+        <div class="arize-header">
+          <div style="font-size:12px;font-weight:700;color:var(--text)">Tracing</div>
+          <div class="arize-tabs">
+            <div class="arize-tab active">Overview</div>
+            <div class="arize-tab">Timeline</div>
+            <div class="arize-tab">Spans</div>
+            <div class="arize-tab">Events</div>
+            <div class="arize-tab">Costs</div>
+            <div class="arize-tab">Metadata</div>
+          </div>
+        </div>
+        <div class="trace-header">
+          <div style="font-size:11px;color:var(--text2)">Trace ID:</div>
+          <div class="trace-id">trace_01HF7ZP8J6X… · 2 minutes ago</div>
+          <button class="btn-share">Share</button>
+        </div>
+        <div class="trace-timeline">
+          <div class="trace-title">Trace Timeline</div>
+          <div class="trace-steps">
+            <div class="trace-step">
+              <div class="trace-step-icon" style="border-color:var(--gitlab)">🦊</div>
+              <div class="trace-step-name">Webhook</div>
+              <div class="trace-step-tool" style="color:var(--gitlab)">GitLab</div>
+              <div class="trace-step-time">812ms</div>
+            </div>
+            <div class="trace-arrow">→</div>
+            <div class="trace-step">
+              <div class="trace-step-icon" style="border-color:var(--elastic)">🔍</div>
+              <div class="trace-step-name">Query</div>
+              <div class="trace-step-tool" style="color:var(--elastic)">Elastic</div>
+              <div class="trace-step-time">1.24s</div>
+            </div>
+            <div class="trace-arrow">→</div>
+            <div class="trace-step">
+              <div class="trace-step-icon" style="border-color:var(--mongo)">🍃</div>
+              <div class="trace-step-name">Search</div>
+              <div class="trace-step-tool" style="color:var(--mongo)">MongoDB</div>
+              <div class="trace-step-time">892ms</div>
+            </div>
+            <div class="trace-arrow">→</div>
+            <div class="trace-step">
+              <div class="trace-step-icon" style="border-color:var(--cyan)">🤖</div>
+              <div class="trace-step-name">LLM</div>
+              <div class="trace-step-tool" style="color:var(--cyan)">OpenAI</div>
+              <div class="trace-step-time">2.31s</div>
+            </div>
+            <div class="trace-arrow">→</div>
+            <div class="trace-step">
+              <div class="trace-step-icon" style="border-color:var(--gitlab)">✍️</div>
+              <div class="trace-step-name">Create</div>
+              <div class="trace-step-tool" style="color:var(--gitlab)">GitLab Issue</div>
+              <div class="trace-step-time">1.02s</div>
+            </div>
+          </div>
+
+          <div class="trace-bottom">
+            <div class="trace-panel">
+              <div class="trace-panel-title">
+                Retrieved Context
+                <span style="color:var(--text3)">3 documents</span>
+              </div>
+              <div class="trace-context-item">
+                <div class="trace-context-icon">🍃</div>
+                <div>
+                  <div class="trace-context-text">INC-1034 – Database connection timeout</div>
+                  <div class="trace-context-match">92% match</div>
+                </div>
+              </div>
+              <div class="trace-context-item">
+                <div class="trace-context-icon">🍃</div>
+                <div>
+                  <div class="trace-context-text">INC-0987 – Connection pool exhausted</div>
+                  <div class="trace-context-match">89% match</div>
+                </div>
+              </div>
+              <div class="trace-context-item">
+                <div class="trace-context-icon">🍃</div>
+                <div>
+                  <div class="trace-context-text">INC-0751 – Slow query causing timeout</div>
+                  <div class="trace-context-match">84% match</div>
+                </div>
+              </div>
+            </div>
+            <div class="trace-panel">
+              <div class="trace-panel-title">
+                LLM Output (root cause summary)
+                <button style="background:none;border:none;color:var(--blue);font-size:11px;cursor:pointer">View full output</button>
+              </div>
+              <div class="trace-output">
+                Database connection timeout due to exhausted connection pool caused by slow queries and high concurrency.
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="trace-footer">
+          <div class="trace-meta">
+            <div class="trace-meta-label">Model</div>
+            <div class="trace-meta-val">gpt-4o</div>
+          </div>
+          <div class="trace-meta">
+            <div class="trace-meta-label">Tokens</div>
+            <div class="trace-meta-val">2,458</div>
+          </div>
+          <div class="trace-meta">
+            <div class="trace-meta-label">Latency</div>
+            <div class="trace-meta-val">2.31s</div>
+          </div>
+          <div class="trace-meta">
+            <div class="trace-meta-label">Cost</div>
+            <div class="trace-meta-val">$0.014</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       PANEL 6 — AUTO-GENERATED GITLAB ISSUE
+  ═══════════════════════════════════════ -->
+  <div class="panel" id="panel-issue" style="width:100%">
+    <div class="section-header">
+      <div class="section-num">6</div>
+      <div class="section-title">Auto-Generated GitLab Issue / PR</div>
+    </div>
+    <div class="issue-wrap" style="height:calc(100% - 49px)">
+      <div class="issue-sidebar">
+        <div class="pipeline-nav-header">
+          <span style="font-size:16px">🦊</span>
+          <span style="font-size:13px;font-weight:700;color:var(--text)">GitLab</span>
+        </div>
+        <div style="padding:8px 0">
+          <div class="pipeline-nav-item">Project information</div>
+          <div class="pipeline-nav-item">Repository</div>
+          <div class="pipeline-nav-item active">Issues <span style="margin-left:auto;font-size:10px;background:var(--bg4);padding:1px 6px;border-radius:10px">12</span></div>
+          <div class="pipeline-nav-item">Merge requests <span style="margin-left:auto;font-size:10px;background:var(--bg4);padding:1px 6px;border-radius:10px">3</span></div>
+          <div class="pipeline-nav-item">CI / CD</div>
+          <div class="pipeline-nav-item">Security &amp; Compliance</div>
+          <div class="pipeline-nav-item">Deployments</div>
+          <div class="pipeline-nav-item">Monitor</div>
+          <div class="pipeline-nav-item">Settings</div>
+        </div>
+      </div>
+      <div class="issue-main">
+        <div class="issue-header">
+          <div class="issue-header-left">
+            <div class="issue-num">Issue #2381</div>
+            <div class="open-badge">Open</div>
+          </div>
+          <div class="issue-creator">
+            <div class="bot-icon">🤖</div>
+            Created by <strong>Rootiq AI Agent</strong> &nbsp;·&nbsp; 2 minutes ago
+          </div>
+        </div>
+
+        <div class="issue-title">Database connection timeout due to exhausted connection pool</div>
+
+        <div class="issue-body">
+          <div class="issue-section-title">Summary</div>
+          <div class="issue-text">The pipeline failed because the application could not acquire a new database connection. The pool limit was reached.</div>
+
+          <div class="issue-section-title">Suggested Fix</div>
+          <ul class="issue-fix-list">
+            <li>Increase connection pool size from 20 to 50</li>
+            <li>Optimise slow query in UserService.getUsers()</li>
+          </ul>
+
+          <div class="issue-section-title">Patch</div>
+          <div class="diff-block">
+            <div class="diff-header">diff --git a/config/database.yml b/config/database.yml</div>
+            <div class="diff-line context">  pool:</div>
+            <div class="diff-line removed">-   max: 20</div>
+            <div class="diff-line added">+   max: 50</div>
+            <div class="diff-line context">    idleTimeoutMillis: 30000</div>
+            <div class="diff-line context">    connectionTimeoutMillis: 2000</div>
+          </div>
+        </div>
+
+        <div class="issue-footer">
+          <div class="reaction">👍 1</div>
+          <div class="reaction">💬 1</div>
+          <button class="btn-mr">🔀 Create Merge Request</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function showPanel(id, tabEl) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  if (tabEl) tabEl.classList.add('active');
+}
+
+function triggerDemo() {
+  // Show hero analyzing bar
+  document.getElementById('hero-bar').style.display = 'block';
+  document.getElementById('hero-analyzing').style.display = 'flex';
+
+  // Auto-walk through panels
+  const tabs = document.querySelectorAll('.nav-tab');
+  const panels = ['hero','arch','pipeline','rca','arize','issue'];
+  let i = 0;
+
+  function next() {
+    showPanel(panels[i], tabs[i]);
+    i++;
+    if (i < panels.length) setTimeout(next, 1800);
+  }
+
+  setTimeout(next, 400);
+}
+</script>
+</body>
+</html>
